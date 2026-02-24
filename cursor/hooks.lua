@@ -282,6 +282,13 @@ function Hooks:HookDropdownFrame(dropdown)
             oldOnShow()
         end
         
+        -- Skip cursor navigation if dropdown navigation is disabled
+        local Config = ConsoleExperience.config
+        if Config and Config.Get and not Config:Get("dropdownNavEnabled") then
+            CE_Debug("Dropdown navigation disabled, skipping: " .. (dropdown:GetName() or "unnamed"))
+            return
+        end
+        
         -- Add dropdown to active frames so its buttons are navigable
         local Cursor = ConsoleExperience.cursor
         Cursor.navigationState.activeFrames[dropdown] = true
@@ -307,6 +314,12 @@ function Hooks:HookDropdownFrame(dropdown)
         -- Run original OnHide first
         if oldOnHide then
             oldOnHide()
+        end
+        
+        -- Skip cursor navigation if dropdown navigation is disabled
+        local Config = ConsoleExperience.config
+        if Config and Config.Get and not Config:Get("dropdownNavEnabled") then
+            return
         end
         
         -- Remove dropdown from active frames

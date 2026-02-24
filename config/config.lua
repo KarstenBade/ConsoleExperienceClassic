@@ -81,6 +81,8 @@ Config.DEFAULTS = {
     language = nil,  -- nil = use game locale, otherwise "enUS", "deDE", etc.
     -- Bag settings
     openAllBagsAtVendor = true,  -- Open all bags when interacting with merchants/auction house
+    -- Dropdown navigation settings
+    dropdownNavEnabled = true,  -- Enable cursor navigation in dropdown menus
 }
 
 -- ============================================================================
@@ -551,6 +553,16 @@ function Config:CreateInterfaceSection()
         end,
         T("Enable healer mode for improved healing and targeting."))
     healerModeCheck:SetPoint("TOPLEFT", controllerTypeLabel, "BOTTOMLEFT", 0, -15)
+    
+    -- Dropdown Navigation checkbox (below healer mode, left side)
+    local dropdownNavCheck = self:CreateCheckbox(generalBox, T("Dropdown Navigation"),
+        function() return Config:Get("dropdownNavEnabled") end,
+        function(checked)
+            Config:Set("dropdownNavEnabled", checked)
+            CE_Debug("Dropdown navigation " .. (checked and "enabled" or "disabled"))
+        end,
+        T("Enable cursor navigation inside dropdown menus. Disable if dropdowns cause UI lag."))
+    dropdownNavCheck:SetPoint("TOPLEFT", healerModeCheck, "BOTTOMLEFT", 0, -5)
     
     -- Language dropdown (center)
     local langLabel = generalBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")

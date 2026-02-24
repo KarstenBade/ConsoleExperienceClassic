@@ -51,6 +51,8 @@ ConsoleExperience_translation["deDE"] = {
     ["Reset Chat Module, Width, Height, and Keyboard Settings to Defaults."] = "Chat-Modul, Breite, Höhe und Tastatur-Einstellungen auf Standard zurücksetzen.",
     ["Healer Mode"] = "Heiler-Modus",
     ["Enable healer mode for improved healing and targeting."] = "Aktiviere Heiler-Modus für verbesserte Heilung und Zielerfassung.",
+    ["Dropdown Navigation"] = "Dropdown-Navigation",
+    ["Enable cursor navigation inside dropdown menus. Disable if dropdowns cause UI lag."] = "Cursornavigation in Dropdown-Menüs aktivieren. Deaktivieren, wenn Dropdowns UI-Verzögerungen verursachen.",
     
     -- XP/Rep Bars
     ["XP Bar"] = "EP-Leiste",

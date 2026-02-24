@@ -197,6 +197,13 @@ function CursorKeys:RestoreOriginalBindings()
     self.originalDPadBindingsSaved = false
     self.currentButton = nil
     
+    -- Re-apply proxied bindings to ensure any changes made during cursor mode take effect
+    -- During cursor mode, keys 1-8 are used for navigation, so binding changes to those
+    -- keys are deferred. This ensures the correct proxied actions are applied after exit.
+    if ConsoleExperience.proxied and ConsoleExperience.proxied.ApplyAllBindings then
+        ConsoleExperience.proxied:ApplyAllBindings()
+    end
+    
     CE_Debug("Cursor bindings deactivated")
 end
 

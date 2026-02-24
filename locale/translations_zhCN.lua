@@ -51,6 +51,8 @@ ConsoleExperience_translation["zhCN"] = {
     ["Reset Chat Module, Width, Height, and Keyboard Settings to Defaults."] = "将聊天模块、宽度、高度和键盘设置重置为默认值。",
     ["Healer Mode"] = "治疗模式",
     ["Enable healer mode for improved healing and targeting."] = "启用治疗模式，可以提高治疗和瞄准。",
+    ["Dropdown Navigation"] = "下拉菜单导航",
+    ["Enable cursor navigation inside dropdown menus. Disable if dropdowns cause UI lag."] = "启用下拉菜单中的光标导航。如果下拉菜单导致界面卡顿，请禁用此功能。",
     
     -- XP/Rep Bars
     ["XP Bar"] = "经验条",
