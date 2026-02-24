@@ -51,6 +51,8 @@ ConsoleExperience_translation["enUS"] = {
     ["Reset Chat Module, Width, Height, and Keyboard Settings to Defaults."] = "Reset Chat Module, Width, Height, and Keyboard Settings to Defaults.",
     ["Healer Mode"] = "Healer Mode",
     ["Enable healer mode for improved healing and targeting."] = "Enable healer mode for improved healing and targeting.",
+    ["Dropdown Navigation"] = "Dropdown Navigation",
+    ["Enable cursor navigation inside dropdown menus. Disable if dropdowns cause UI lag."] = "Enable cursor navigation inside dropdown menus. Disable if dropdowns cause UI lag.",
     
     -- XP/Rep Bars
     ["XP Bar"] = "XP Bar",

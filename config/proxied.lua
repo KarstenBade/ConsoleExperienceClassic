@@ -672,9 +672,13 @@ end
 function Proxied:ApplyAllBindings()
     CE_Debug("Proxied: Applying all bindings...")
     
-    -- Apply main action bar bindings (slots 1-40)
-    for slot = 1, 40 do
-        self:ApplySlotBinding(slot)
+    -- Only apply bindings for slots that have proxied actions
+    -- Non-proxied slots keep their existing WoW binding settings
+    -- (CE_ACTION_X from initial setup, or user customizations from Blizzard UI)
+    if ConsoleExperienceDB and ConsoleExperienceDB.proxiedActions then
+        for slot, bindingID in pairs(ConsoleExperienceDB.proxiedActions) do
+            self:ApplySlotBinding(slot)
+        end
     end
     
     -- Save bindings (1 = account-wide)

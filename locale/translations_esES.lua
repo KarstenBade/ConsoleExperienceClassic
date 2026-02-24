@@ -51,6 +51,8 @@ ConsoleExperience_translation["esES"] = {
     ["Reset Chat Module, Width, Height, and Keyboard Settings to Defaults."] = "Restablece el módulo de chat, anchura, altura y configuración de teclado a los valores por defecto.",
     ["Healer Mode"] = "Modo Sanador",
     ["Enable healer mode for improved healing and targeting."] = "Activa el modo sanador para mejorar la curación y el objetivo.",
+    ["Dropdown Navigation"] = "Navegación en menús desplegables",
+    ["Enable cursor navigation inside dropdown menus. Disable if dropdowns cause UI lag."] = "Habilitar la navegación del cursor dentro de los menús desplegables. Desactivar si los menús desplegables causan retraso en la interfaz.",
     
     -- XP/Rep Bars
     ["XP Bar"] = "Barra de EXP",
