@@ -467,7 +467,6 @@ function ActionBars:GetActionOffset()
     -- Druids: Cat=1, Bear=3, Travel=4, Moonkin=5 (Aquatic uses regular bar)
     -- Rogues: Stealth=1
     local bonusBar = GetBonusBarOffset()
-    CE_Debug("GetActionOffset: bonusBar=" .. tostring(bonusBar) .. ", currentPage=" .. tostring(self.currentPage))
     
     -- Check for druid forms that don't use bonus bars (like Travel Form)
     local _, class = UnitClass("player")
@@ -475,11 +474,9 @@ function ActionBars:GetActionOffset()
         local currentForm = self:GetCurrentDruidForm()
         if currentForm then
             local formLower = string.lower(currentForm)
-            CE_Debug("GetActionOffset: Current form: " .. currentForm)
             
             -- Travel form doesn't use a bonus bar, but we want to use travel form bar slots
             if string.find(formLower, "travel") then
-                CE_Debug("GetActionOffset: Using travel form bar (bonus bar 4)")
                 return self.BONUS_BAR_BASE + (4 * 12)
             end
         end
@@ -499,7 +496,6 @@ function ActionBars:GetActionOffset()
             local isStealth = self:IsCatStealth()
             if isStealth then
                 -- In cat form with stealth active, use travel form bar (bonus bar 4)
-                CE_Debug("GetActionOffset: Using travel form bar (stealth active)")
                 return self.BONUS_BAR_BASE + (4 * 12)
             end
         end

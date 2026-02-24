@@ -626,6 +626,10 @@ function Proxied:ApplySlotBinding(slot)
     -- Target action to bind
     local targetAction = bindingID or ("CE_ACTION_" .. slot)
     
+    -- Debug output
+    local currentBinding = GetBindingAction(key)
+    CE_Debug("Proxied: ApplySlotBinding slot=" .. slot .. " key=" .. key .. " bindingID=" .. tostring(bindingID) .. " currentBinding=" .. tostring(currentBinding) .. " targetAction=" .. targetAction)
+    
     -- Check if cursor mode is active
     local cursorModeActive = false
     if ConsoleExperience.cursor and ConsoleExperience.cursor.keybindings then
@@ -637,21 +641,52 @@ function Proxied:ApplySlotBinding(slot)
     local isCursorManagedKey = (slot >= 1 and slot <= 8)
     
     if cursorModeActive and isCursorManagedKey then
-        -- For keys 1-8 during cursor mode: only update originalBindings
-        -- Don't call SetBinding because cursor mode is using these keys for navigation
-        -- The binding will be applied when cursor mode exits
+        -- For keys 1-8 during cursor mode: update originalBindings
+        -- The binding will be applied when cursor mode exits via ApplyAllBindings()
         local cursorKeys = ConsoleExperience.cursor.keybindings
         if not cursorKeys.originalBindings then
             cursorKeys.originalBindings = {}
         end
+        
+        -- CRITICAL: Update originalBindings with the NEW target action
+        -- This ensures that when cursor mode exits, it restores the correct binding (CE_ACTION_X)
+        -- instead of the old proxied action (like JUMP)
         cursorKeys.originalBindings[key] = targetAction
         CE_Debug("Proxied: Updated cursor original binding for " .. key .. " to " .. targetAction .. " (will apply when cursor mode exits)")
+        
+        -- Also update buttonBindings if we're currently on a button
+        -- This ensures the binding is updated for the current button context
+        if cursorKeys.currentButton then
+            local buttonName = cursorKeys.currentButton:GetName() or tostring(cursorKeys.currentButton)
+            if cursorKeys.buttonBindings and cursorKeys.buttonBindings[buttonName] then
+                cursorKeys.buttonBindings[buttonName][key] = targetAction
+                CE_Debug("Proxied: Updated button binding for " .. buttonName .. " key " .. key .. " to " .. targetAction)
+            end
+        end
+        
+        -- IMPORTANT: Even during cursor mode, we must clear the old proxied binding immediately
+        -- Otherwise the old action (like JUMP) will still be active
+        -- We can't set the new binding yet (cursor mode needs the key), but we can clear the old one
+        local currentBinding = GetBindingAction(key)
+        if currentBinding and currentBinding ~= targetAction then
+            CE_Debug("Proxied: Clearing old binding " .. currentBinding .. " from " .. key .. " during cursor mode")
+            SetBinding(key, nil)
+        end
     else
         -- For modifier keys (slots 9-40) OR when cursor mode is not active:
         -- Apply the binding immediately via SetBinding
         
         -- First, clear any existing binding on this key
-        SetBinding(key, nil)
+        if currentBinding then
+            CE_Debug("Proxied: Clearing existing binding " .. currentBinding .. " from " .. key)
+            SetBinding(key, nil)
+            -- Verify it was cleared
+            local verifyCleared = GetBindingAction(key)
+            if verifyCleared then
+                CE_Debug("Proxied: WARNING - Key " .. key .. " still bound to " .. verifyCleared .. " after clear, trying again")
+                SetBinding(key, nil)
+            end
+        end
         
         -- Now set the new binding
         SetBinding(key, targetAction)
@@ -659,9 +694,18 @@ function Proxied:ApplySlotBinding(slot)
         -- Verify the binding was set by checking what action this key is now bound to
         local verifyAction = GetBindingAction(key)
         if verifyAction == targetAction then
-            CE_Debug("Proxied: Set " .. key .. " to " .. targetAction .. " (verified)")
+            CE_Debug("Proxied: Successfully set " .. key .. " to " .. targetAction .. " (verified)")
         elseif verifyAction then
-            CE_Debug("Proxied: WARNING - " .. key .. " is bound to " .. verifyAction .. " instead of " .. targetAction)
+            CE_Debug("Proxied: WARNING - " .. key .. " is bound to " .. verifyAction .. " instead of " .. targetAction .. ", forcing correct binding")
+            -- Force the correct binding
+            SetBinding(key, nil)
+            SetBinding(key, targetAction)
+            verifyAction = GetBindingAction(key)
+            if verifyAction == targetAction then
+                CE_Debug("Proxied: Successfully forced binding to " .. targetAction)
+            else
+                CE_Debug("Proxied: ERROR - Failed to set binding after force, still bound to " .. tostring(verifyAction))
+            end
         else
             CE_Debug("Proxied: WARNING - " .. key .. " has no binding after SetBinding call")
         end
