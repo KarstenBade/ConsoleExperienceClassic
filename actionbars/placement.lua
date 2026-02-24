@@ -81,10 +81,11 @@ local function GetDruidFormBonusBar(formName)
     
     -- Map form names to bonus bar numbers (WoW 1.12 mapping)
     -- Note: In WoW 1.12, Cat Form uses bonus bar 1, Bear Form uses bonus bar 3
+    -- Aquatic Form uses the regular action bar (no bonus bar)
     if string.find(nameLower, "cat") then
         return 1  -- Cat Form (uses bonus bar 1)
     elseif string.find(nameLower, "aquatic") then
-        return 2  -- Aquatic Form
+        return nil  -- Aquatic Form uses regular action bar (no dedicated bar)
     elseif string.find(nameLower, "bear") then
         return 3  -- Bear Form / Dire Bear Form (uses bonus bar 3)
     elseif string.find(nameLower, "travel") then
@@ -133,17 +134,23 @@ function Placement:GetStanceInfo()
             
             -- Determine the actual bonus bar for this form
             local bonusBar = GetDruidFormBonusBar(name)
-            -- Fallback to form index if name mapping fails
-            if not bonusBar then
-                bonusBar = i
-            end
             
-            table.insert(stances, {
-                name = name or (L("Form") .. " " .. i),
-                texture = spellbookTexture or texture,
-                bonusBar = bonusBar,
-                offset = GetStanceOffset(bonusBar)
-            })
+            -- Skip forms that don't have a dedicated bar (like Aquatic Form)
+            if bonusBar == nil then
+                -- This form uses the regular action bar, skip it in placement frame
+            else
+                -- Fallback to form index if name mapping fails (shouldn't happen for known forms)
+                if not bonusBar then
+                    bonusBar = i
+                end
+                
+                table.insert(stances, {
+                    name = name or (L("Form") .. " " .. i),
+                    texture = spellbookTexture or texture,
+                    bonusBar = bonusBar,
+                    offset = GetStanceOffset(bonusBar)
+                })
+            end
         end
     elseif class == "ROGUE" then
         -- Rogues: Normal + Stealth

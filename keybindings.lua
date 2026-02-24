@@ -123,16 +123,23 @@ function ConsoleExperience_ActionButton(slot)
     
     -- Only trigger on key down (keystate is set by WoW for runOnUp bindings)
     if keystate == "down" then
-        -- Calculate actual slot, accounting for bonus bar (stances/forms)
+        -- Calculate actual slot using the same logic as ActionBars:GetActionOffset()
+        -- This ensures keybindings use the same slots as the displayed buttons
         local actualSlot = slot
+        local ActionBars = ConsoleExperience.actionbars
         
-        -- For slots 1-10 (base bar without modifiers), check for bonus bar
+        -- For slots 1-10 (base bar without modifiers), use GetActionOffset logic
         if slot >= 1 and slot <= 10 then
-            local bonusBar = GetBonusBarOffset()
-            if bonusBar and bonusBar > 0 then
-                -- Bonus bar slots: 60 + (bonusBar * 12) + buttonIndex
-                -- Battle=1: 73-82, Defensive=2: 85-94, Berserker=3: 97-106
-                actualSlot = 60 + (bonusBar * 12) + slot
+            if ActionBars and ActionBars.GetActionOffset then
+                -- Use the same offset calculation as the action bars
+                local offset = ActionBars:GetActionOffset()
+                actualSlot = offset + slot
+            else
+                -- Fallback: basic bonus bar calculation
+                local bonusBar = GetBonusBarOffset()
+                if bonusBar and bonusBar > 0 then
+                    actualSlot = 60 + (bonusBar * 12) + slot
+                end
             end
         end
         

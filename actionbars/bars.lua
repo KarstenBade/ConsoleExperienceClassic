@@ -464,12 +464,12 @@ function ActionBars:GetActionOffset()
     
     -- For page 1 (no modifier), check for bonus bar (stances/forms)
     -- Warriors: Battle=1, Defensive=2, Berserker=3
-    -- Druids: Cat=1, Aquatic=2, Bear=3, Travel=4, Moonkin=5
+    -- Druids: Cat=1, Bear=3, Travel=4, Moonkin=5 (Aquatic uses regular bar)
     -- Rogues: Stealth=1
     local bonusBar = GetBonusBarOffset()
     CE_Debug("GetActionOffset: bonusBar=" .. tostring(bonusBar) .. ", currentPage=" .. tostring(self.currentPage))
     
-    -- Check for druid forms that don't use bonus bars (like Travel Form, Aquatic Form)
+    -- Check for druid forms that don't use bonus bars (like Travel Form)
     local _, class = UnitClass("player")
     if class == "DRUID" then
         local currentForm = self:GetCurrentDruidForm()
@@ -481,12 +481,6 @@ function ActionBars:GetActionOffset()
             if string.find(formLower, "travel") then
                 CE_Debug("GetActionOffset: Using travel form bar (bonus bar 4)")
                 return self.BONUS_BAR_BASE + (4 * 12)
-            end
-            
-            -- Aquatic form doesn't use a bonus bar, but we want to use aquatic form bar slots
-            if string.find(formLower, "aquatic") then
-                CE_Debug("GetActionOffset: Using aquatic form bar (bonus bar 2)")
-                return self.BONUS_BAR_BASE + (2 * 12)
             end
         end
     end
