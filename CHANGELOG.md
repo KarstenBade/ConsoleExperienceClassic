@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.2](https://github.com/pepordev/ConsoleExperienceClassic/compare/v0.17.1...v0.17.2) (2026-02-24)
+
+
+### Bug Fixes
+
+* **druid:** properly handle prowl action bar and removed travel form ([32d9a0f](https://github.com/pepordev/ConsoleExperienceClassic/commit/32d9a0f926ede0c29f3c28f756d034f516ad7ba9))
+* properly handle proxied actions ([af55737](https://github.com/pepordev/ConsoleExperienceClassic/commit/af557370b0cf42ebf7b5c3551b1b2e6bac44346c))
+* properly handle proxied actions for buttons managed by the cursor mode ([c3c6909](https://github.com/pepordev/ConsoleExperienceClassic/commit/c3c6909e51274a3fde5ec08d1887f42e69fcd557))
+
 ## [0.17.1](https://github.com/pepordev/ConsoleExperienceClassic/compare/v0.17.0...v0.17.1) (2026-01-31)
 
 
