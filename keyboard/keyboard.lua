@@ -1608,14 +1608,21 @@ function Keyboard:Initialize()
             if oldOnShow then
                 oldOnShow()
             end
+            if ChatFrameEditBox then
+                ChatFrameEditBox:Raise()
+            end
             -- Show keyboard when chat edit box is shown (only if keyboard is enabled)
             local config = ConsoleExperience.config
             if ConsoleExperience.keyboard and config and config:Get("keyboardEnabled") then
                 ConsoleExperience.keyboard:Show(ChatFrameEditBox)
+                if ChatFrameEditBox then
+                    ChatFrameEditBox:Raise()
+                end
             else
                 -- Keyboard is disabled - ensure ChatFrameEditBox has proper focus and keyboard input
                 if ChatFrameEditBox then
                     ChatFrameEditBox:EnableKeyboard(true)
+                    ChatFrameEditBox:Raise()
                     -- Use a small delay to ensure focus is set after the edit box is fully shown
                     local focusFrame = CreateFrame("Frame")
                     focusFrame:SetScript("OnUpdate", function()
@@ -1624,6 +1631,7 @@ function Keyboard:Initialize()
                             this:SetScript("OnUpdate", nil)
                             if ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
                                 ChatFrameEditBox:SetFocus()
+                                ChatFrameEditBox:Raise()
                             end
                         end
                     end)
@@ -1731,4 +1739,3 @@ SlashCmdList["CELISTCMDS"] = function()
 end
 
 -- Module loaded silently
-
