@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.3](https://github.com/pepordev/ConsoleExperienceClassic/compare/v0.17.2...v0.17.3) (2026-03-10)
+
+
+### Bug Fixes
+
+* properly handle chatbox strata ([ecde76b](https://github.com/pepordev/ConsoleExperienceClassic/commit/ecde76b3b10f55a2d7871ad1750517b8fed4e775))
+
 ## [0.17.2](https://github.com/pepordev/ConsoleExperienceClassic/compare/v0.17.1...v0.17.2) (2026-02-24)
 
 
