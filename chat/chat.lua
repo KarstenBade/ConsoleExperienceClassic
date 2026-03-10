@@ -25,6 +25,11 @@ Chat.chatFrameOriginalState = {
     color = nil,
     alpha = nil
 }
+Chat.chatEditBoxOriginalState = {
+    strata = nil,
+    level = nil,
+    saved = false
+}
 
 -- Save original chat frame state
 function Chat:SaveChatFrameState()
@@ -79,6 +84,29 @@ function Chat:RestoreChatFrameState()
             end
         end
     end
+end
+
+-- Save original chat edit box layer state
+function Chat:SaveChatEditBoxLayerState()
+    if not ChatFrameEditBox or self.chatEditBoxOriginalState.saved then return end
+
+    self.chatEditBoxOriginalState.strata = ChatFrameEditBox:GetFrameStrata()
+    self.chatEditBoxOriginalState.level = ChatFrameEditBox:GetFrameLevel()
+    self.chatEditBoxOriginalState.saved = true
+end
+
+-- Restore original chat edit box layer state
+function Chat:RestoreChatEditBoxLayerState()
+    if not ChatFrameEditBox or not self.chatEditBoxOriginalState.saved then return end
+
+    if self.chatEditBoxOriginalState.strata then
+        ChatFrameEditBox:SetFrameStrata(self.chatEditBoxOriginalState.strata)
+    end
+    if self.chatEditBoxOriginalState.level then
+        ChatFrameEditBox:SetFrameLevel(self.chatEditBoxOriginalState.level)
+    end
+
+    self.chatEditBoxOriginalState.saved = false
 end
 
 -- Get anchor frame for chat positioning (when edit box is hidden)
@@ -185,6 +213,9 @@ function Chat:Disable()
     if self.oskHelper then
         self.oskHelper:Hide()
     end
+
+    -- Restore edit box layers if we elevated them
+    self:RestoreChatEditBoxLayerState()
     
     CE_Debug("Chat: Disable completed")
 end
@@ -367,6 +398,12 @@ function Chat:ManagePositions(a1, a2, a3)
                     ChatFrame1:SetFrameStrata("DIALOG")
                     ChatFrame1:SetFrameLevel(100)
                     ChatFrame1:SetAlpha(1.0)
+
+                    -- Keep edit box above focused chat messages
+                    self:SaveChatEditBoxLayerState()
+                    ChatFrameEditBox:SetFrameStrata("DIALOG")
+                    ChatFrameEditBox:SetFrameLevel(ChatFrame1:GetFrameLevel() + 20)
+                    ChatFrameEditBox:Raise()
                     
                     -- Position from top, starting BELOW the edit box
                     -- Top edge starts below edit box, bottom edge at editBoxOffset + chatHeight from top
@@ -413,6 +450,7 @@ function Chat:ManagePositions(a1, a2, a3)
                     ChatFrame1:SetFrameStrata("BACKGROUND")
                     ChatFrame1:SetFrameLevel(1)
                 end
+                self:RestoreChatEditBoxLayerState()
                 
                 -- Force update to ensure we restore the configured layout
                 self:UpdateChatLayout(true)
@@ -567,4 +605,3 @@ function Chat:Initialize()
     self.initialized = true
     CE_Debug("Chat frame module initialized")
 end
-
