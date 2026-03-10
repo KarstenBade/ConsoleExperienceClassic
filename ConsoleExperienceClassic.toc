@@ -7,7 +7,7 @@
 ## Title-zhTW: 遊戲控制器支援 |cff7fff7f Classic|r
 ## Author: pepordev
 # x-release-please-start-version
-## Version: 0.17.2
+## Version: 0.17.3
 # x-release-please-end
 ## Notes: Console Experience for WoW Vanilla
 ## Notes-esES: Experiencia de consola para WoW Vanilla
