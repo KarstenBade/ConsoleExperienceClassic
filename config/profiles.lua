@@ -422,9 +422,14 @@ function Profiles:SaveCurrentProfile()
     
     -- Save action bars (only saves slots that have actions)
     -- Empty slots are not saved, which is fine because LoadActionBars clears all slots first
-    profile.actionBars = self:SaveActionBars()
-    
-    CE_Debug("Profiles: Saved " .. (self:CountTableKeys(profile.actionBars) or 0) .. " action bar slots")
+    -- Skip if actionBarManaged is disabled (user wants server-side bars untouched)
+    local actionBarManaged = not ConsoleExperienceDB.config or ConsoleExperienceDB.config.actionBarManaged ~= false
+    if actionBarManaged then
+        profile.actionBars = self:SaveActionBars()
+        CE_Debug("Profiles: Saved " .. (self:CountTableKeys(profile.actionBars) or 0) .. " action bar slots")
+    else
+        CE_Debug("Profiles: Skipped action bar save (actionBarManaged is disabled)")
+    end
 end
 
 -- Load a profile (apply its settings)
@@ -589,13 +594,17 @@ function Profiles:LoadProfile(profileName)
     end
     
     -- Load action bars (with delay to ensure everything else is loaded first)
-    if profile.actionBars then
+    -- Skip if actionBarManaged is disabled (user wants server-side bars untouched)
+    local actionBarManaged = not ConsoleExperienceDB.config or ConsoleExperienceDB.config.actionBarManaged ~= false
+    if actionBarManaged and profile.actionBars then
         -- Use a small delay before loading action bars
         local loadFrame = CreateFrame("Frame")
         loadFrame:SetScript("OnUpdate", function()
             loadFrame:SetScript("OnUpdate", nil)
             Profiles:LoadActionBars(profile.actionBars)
         end)
+    elseif not actionBarManaged then
+        CE_Debug("Profiles: Skipped action bar load (actionBarManaged is disabled)")
     end
     
     return true
@@ -724,6 +733,11 @@ end
 
 -- Hook into action bar changes
 local function OnActionBarSlotChanged()
+    -- Skip auto-save if actionBarManaged is disabled (user wants server-side bars untouched)
+    local actionBarManaged = not ConsoleExperienceDB or not ConsoleExperienceDB.config or ConsoleExperienceDB.config.actionBarManaged ~= false
+    if not actionBarManaged then
+        return
+    end
     -- Save current profile immediately when action bars change
     if ConsoleExperience.profiles and ConsoleExperience.profiles.SaveCurrentProfile then
         ConsoleExperience.profiles:SaveCurrentProfile()

@@ -35,6 +35,7 @@ Config.DEFAULTS = {
     barScale = 1.0,
     barAppearance = "classic",  -- "classic" or "modern"
     autoRankEnabled = true,  -- Automatically update spells to highest rank
+    actionBarManaged = true,  -- When true, addon saves/loads action bar slot assignments via profiles
     druidStealth = false,  -- Use travel form bar when prowl/stealth is active in cat form
     -- Side Action Bars (touch screen)
     sideBarLeftEnabled = false,  -- Left side bar disabled by default
@@ -1152,9 +1153,26 @@ function Config:CreateBarsSection()
         Config:Set("autoRankEnabled", checked)
     end)
     
+    -- Row 1b: Action bar managed checkbox (left side of a new row between row 1 and row 2)
+    local actionBarManagedLabel = generalBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    actionBarManagedLabel:SetPoint("TOPLEFT", appearanceLabel, "BOTTOMLEFT", 0, -15)
+    actionBarManagedLabel:SetText(T("Manage action bars via profiles"))
+    
+    local actionBarManagedCheck = CreateFrame("CheckButton", self:GetNextElementName("Check"), generalBox, "UICheckButtonTemplate")
+    actionBarManagedCheck:SetWidth(24)
+    actionBarManagedCheck:SetHeight(24)
+    actionBarManagedCheck:SetPoint("LEFT", actionBarManagedLabel, "RIGHT", 5, 0)
+    actionBarManagedCheck.label = T("Manage action bars via profiles")
+    actionBarManagedCheck.tooltipText = T("When enabled, the addon saves and loads action bar assignments as part of profiles. When disabled, your server-side action bar assignments are left untouched.")
+    actionBarManagedCheck:SetChecked(Config:Get("actionBarManaged"))
+    actionBarManagedCheck:SetScript("OnClick", function()
+        local checked = this:GetChecked() == 1
+        Config:Set("actionBarManaged", checked)
+    end)
+    
     -- Row 2: Positioning options (Size, Pad, X, Y, Star, Scale) + Reset button
     local sizeLabel = generalBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sizeLabel:SetPoint("TOPLEFT", appearanceLabel, "BOTTOMLEFT", 0, -15)
+    sizeLabel:SetPoint("TOPLEFT", actionBarManagedLabel, "BOTTOMLEFT", 0, -15)
     sizeLabel:SetText(T("Size") .. ":")
     
     local sizeEditBox = self:CreateEditBox(generalBox, 35,
