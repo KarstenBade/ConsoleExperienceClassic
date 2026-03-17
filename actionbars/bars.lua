@@ -1864,6 +1864,11 @@ function ActionBars:ButtonOnDragStart(button)
             end
             -- Clear the virtual slot immediately
             self.virtualBars[actionID] = nil
+            -- Show the spell/macro icon on the fake cursor so the player can
+            -- see what they are dragging
+            if data.texture and ConsoleExperience.cursor and ConsoleExperience.cursor.SetHeldItemTexture then
+                ConsoleExperience.cursor:SetHeldItemTexture(data.texture)
+            end
         end
     else
         local actionID = self:GetActionID(button)
@@ -1918,6 +1923,11 @@ function ActionBars:ButtonOnReceiveDrag(button)
         self:SaveVirtualBars()
         button:SetChecked(0)
         self:UpdateButton(button)
+
+        -- Clear fake cursor texture now that the spell/macro has been placed
+        if ConsoleExperience.cursor and ConsoleExperience.cursor.ClearHeldItemTexture then
+            ConsoleExperience.cursor:ClearHeldItemTexture()
+        end
 
         -- Also update source button if it was a different button
         self:UpdateAllButtons()

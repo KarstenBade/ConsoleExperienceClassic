@@ -687,15 +687,15 @@ function Profiles:LoadProfile(profileName)
         ConsoleExperience.proxied:ApplyAllBindings()
     end
     
-    -- Load action bars (with delay to ensure everything else is loaded first)
-    if profile.actionBars then
-        -- Use a small delay before loading action bars
-        local loadFrame = CreateFrame("Frame")
-        loadFrame:SetScript("OnUpdate", function()
-            loadFrame:SetScript("OnUpdate", nil)
-            Profiles:LoadActionBars(profile.actionBars)
-        end)
-    end
+    -- Load action bars (with delay to ensure everything else is loaded first).
+    -- Always call LoadActionBars even when profile.actionBars is nil/empty:
+    -- LoadActionBars handles that case by seeding virtualBars from native slots.
+    local actionBarsToLoad = profile.actionBars
+    local loadFrame = CreateFrame("Frame")
+    loadFrame:SetScript("OnUpdate", function()
+        loadFrame:SetScript("OnUpdate", nil)
+        Profiles:LoadActionBars(actionBarsToLoad)
+    end)
     
     return true
 end
@@ -885,6 +885,12 @@ function Profiles:Initialize()
             end
         end)
     end
+    
+    -- Load the current profile so that virtualBars and other settings are
+    -- restored from SavedVariables on every login/reload.  Without this call
+    -- virtualBars stays empty until something explicitly calls LoadProfile,
+    -- which meant icons never showed in the action bar or placement view.
+    self:LoadProfile(self:GetCurrentProfileName())
     
     CE_Debug("Profiles: Initialized. Current profile: " .. self:GetCurrentProfileName())
 end

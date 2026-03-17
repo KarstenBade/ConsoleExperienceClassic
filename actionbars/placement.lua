@@ -647,8 +647,21 @@ function Placement:CreateActionButton(parent, actionSlot, buttonIndex, pageIndex
                 PickupAction(slot)
             end
             Placement:UpdateButton(this)
-            -- Show texture on fake cursor
-            local texture = IsUsingAddonActionBars() and nil or GetActionTexture(slot)
+            -- Show texture on fake cursor. The virtual slot was already cleared, so
+            -- read the texture back from the WoW cursor (PickupSpell/PickupMacro was
+            -- called above and puts the item on the native cursor).
+            local texture
+            if IsUsingAddonActionBars() then
+                local cursorType, cursorID, cursorDetail = GetCursorInfo()
+                if cursorType == "spell" then
+                    texture = GetSpellTexture(cursorID, cursorDetail or BOOKTYPE_SPELL)
+                elseif cursorType == "macro" then
+                    local _, macroTex = GetMacroInfo(cursorID)
+                    texture = macroTex
+                end
+            else
+                texture = GetActionTexture(slot)
+            end
             if texture and ConsoleExperience.cursor and ConsoleExperience.cursor.SetHeldItemTexture then
                 ConsoleExperience.cursor:SetHeldItemTexture(texture)
             end
@@ -673,7 +686,19 @@ function Placement:CreateActionButton(parent, actionSlot, buttonIndex, pageIndex
                 PickupAction(slot)
             end
             Placement:UpdateButton(this)
-            local texture = IsUsingAddonActionBars() and nil or GetActionTexture(slot)
+            -- Show texture on fake cursor (virtual-mode: read back from WoW cursor)
+            local texture
+            if IsUsingAddonActionBars() then
+                local cursorType, cursorID, cursorDetail = GetCursorInfo()
+                if cursorType == "spell" then
+                    texture = GetSpellTexture(cursorID, cursorDetail or BOOKTYPE_SPELL)
+                elseif cursorType == "macro" then
+                    local _, macroTex = GetMacroInfo(cursorID)
+                    texture = macroTex
+                end
+            else
+                texture = GetActionTexture(slot)
+            end
             if texture and ConsoleExperience.cursor and ConsoleExperience.cursor.SetHeldItemTexture then
                 ConsoleExperience.cursor:SetHeldItemTexture(texture)
             end
