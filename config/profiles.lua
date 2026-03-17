@@ -198,6 +198,39 @@ function Profiles:SaveActionBars()
     return actionBars
 end
 
+-- Helper: Place a single action data item into a WoW action bar slot
+-- Returns true if the action was successfully placed
+local function PlaceActionData(slot, data)
+    if data.type == "spell" and data.id then
+        PickupSpell(data.id, BOOKTYPE_SPELL)
+        PlaceAction(slot)
+        ClearCursor()
+        return true
+    elseif data.type == "macro" and data.id then
+        PickupMacro(data.id)
+        PlaceAction(slot)
+        ClearCursor()
+        return true
+    elseif data.type == "unknown" and data.name then
+        local spellID = FindSpellIDByName(data.name)
+        if spellID then
+            PickupSpell(spellID, BOOKTYPE_SPELL)
+            PlaceAction(slot)
+            ClearCursor()
+            return true
+        else
+            local macroID = FindMacroIDByName(data.name)
+            if macroID then
+                PickupMacro(macroID)
+                PlaceAction(slot)
+                ClearCursor()
+                return true
+            end
+        end
+    end
+    return false
+end
+
 -- Load action bar state from saved data
 function Profiles:LoadActionBars(actionBars)
     -- Suppress auto-save during bar restoration to avoid saving partial state
@@ -246,36 +279,7 @@ function Profiles:LoadActionBars(actionBars)
         -- Restore one slot per frame to avoid overwhelming the game
         if currentIndex <= slotsCount then
             local item = slotsToRestore[currentIndex]
-            local slot = item.slot
-            local data = item.data
-            
-            -- Restore the action based on type
-            if data.type == "spell" and data.id then
-                -- Restore spell using spell ID
-                PickupSpell(data.id, BOOKTYPE_SPELL)
-                PlaceAction(slot)
-                ClearCursor()
-            elseif data.type == "macro" and data.id then
-                -- Restore macro using macro ID
-                PickupMacro(data.id)
-                PlaceAction(slot)
-                ClearCursor()
-            elseif data.type == "unknown" and data.name then
-                -- Try to find and restore by name (spell or macro)
-                local spellID = FindSpellIDByName(data.name)
-                if spellID then
-                    PickupSpell(spellID, BOOKTYPE_SPELL)
-                    PlaceAction(slot)
-                    ClearCursor()
-                else
-                    local macroID = FindMacroIDByName(data.name)
-                    if macroID then
-                        PickupMacro(macroID)
-                        PlaceAction(slot)
-                        ClearCursor()
-                    end
-                end
-            end
+            PlaceActionData(item.slot, item.data)
             
             currentIndex = currentIndex + 1
         else
@@ -337,32 +341,8 @@ function Profiles:RestoreServerBars()
     -- Restore from snapshot (synchronous - no throttling needed during logout)
     local restoredCount = 0
     for slot, data in pairs(self.serverSnapshot) do
-        if data.type == "spell" and data.id then
-            PickupSpell(data.id, BOOKTYPE_SPELL)
-            PlaceAction(slot)
-            ClearCursor()
+        if PlaceActionData(slot, data) then
             restoredCount = restoredCount + 1
-        elseif data.type == "macro" and data.id then
-            PickupMacro(data.id)
-            PlaceAction(slot)
-            ClearCursor()
-            restoredCount = restoredCount + 1
-        elseif data.type == "unknown" and data.name then
-            local spellID = FindSpellIDByName(data.name)
-            if spellID then
-                PickupSpell(spellID, BOOKTYPE_SPELL)
-                PlaceAction(slot)
-                ClearCursor()
-                restoredCount = restoredCount + 1
-            else
-                local macroID = FindMacroIDByName(data.name)
-                if macroID then
-                    PickupMacro(macroID)
-                    PlaceAction(slot)
-                    ClearCursor()
-                    restoredCount = restoredCount + 1
-                end
-            end
         end
     end
     
