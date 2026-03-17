@@ -1163,7 +1163,7 @@ function Config:CreateBarsSection()
     actionBarManagedCheck:SetHeight(24)
     actionBarManagedCheck:SetPoint("LEFT", actionBarManagedLabel, "RIGHT", 5, 0)
     actionBarManagedCheck.label = T("Manage action bars via profiles")
-    actionBarManagedCheck.tooltipText = T("When enabled, the addon saves and loads action bar assignments as part of profiles. When disabled, your server-side action bar assignments are left untouched.")
+    actionBarManagedCheck.tooltipText = T("When enabled, the addon manages action bar assignments via profiles and automatically preserves your original action bar layout by restoring it on logout. When disabled, the addon does not modify action bar assignments.")
     actionBarManagedCheck:SetChecked(Config:Get("actionBarManaged"))
     actionBarManagedCheck:SetScript("OnClick", function()
         local checked = this:GetChecked() == 1

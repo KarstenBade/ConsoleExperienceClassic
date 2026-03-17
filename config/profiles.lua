@@ -111,28 +111,14 @@ local function FindMacroIDByName(macroName)
     return nil
 end
 
--- Save current action bar state
--- Returns a table mapping slot -> action data
--- Note: We save ALL slots (1-120), including empty ones as nil entries
--- This ensures that when loading, we can clear slots that were previously filled
-function Profiles:SaveActionBars()
+-- Helper: Scan current WoW action bar slots and return a table of action data
+-- This is the core scanning logic used by both SaveActionBars and SnapshotServerBars
+local function ScanCurrentActionBars()
     local actionBars = {}
-    local profile = self:GetCurrentProfile()
-    
-    -- Start with existing action bars from profile (to preserve slots that might not be in current state)
-    if profile and profile.actionBars then
-        for slot, data in pairs(profile.actionBars) do
-            actionBars[slot] = data
-        end
-    end
-    
-    -- Now update with current state - iterate through all possible action slots (1-120)
-    for slot = 1, self.MAX_ACTION_SLOTS do
+    for slot = 1, Profiles.MAX_ACTION_SLOTS do
         if HasAction(slot) then
-            -- Get texture (always available)
             local texture = GetActionTexture(slot)
             
-            -- Get tooltip info to identify the action
             GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
             GameTooltip:ClearLines()
             GameTooltip:SetAction(slot)
@@ -149,27 +135,24 @@ function Profiles:SaveActionBars()
             GameTooltip:Hide()
             
             if actionName and texture then
-                -- Try to identify as spell
                 local spellID = FindSpellIDByName(actionName)
                 if spellID then
                     actionBars[slot] = {
                         type = "spell",
                         id = spellID,
-                        name = actionName,  -- Store name for reference
+                        name = actionName,
                         texture = texture,
                     }
                 else
-                    -- Try to identify as macro
                     local macroID = FindMacroIDByName(actionName)
                     if macroID then
                         actionBars[slot] = {
                             type = "macro",
                             id = macroID,
-                            name = actionName,  -- Store name for reference
+                            name = actionName,
                             texture = texture,
                         }
                     else
-                        -- Unknown type - save what we can
                         actionBars[slot] = {
                             type = "unknown",
                             name = actionName,
@@ -178,6 +161,34 @@ function Profiles:SaveActionBars()
                     end
                 end
             end
+        end
+    end
+    return actionBars
+end
+
+-- Save current action bar state
+-- Returns a table mapping slot -> action data
+-- Note: We save ALL slots (1-120), including empty ones as nil entries
+-- This ensures that when loading, we can clear slots that were previously filled
+function Profiles:SaveActionBars()
+    local actionBars = {}
+    local profile = self:GetCurrentProfile()
+    
+    -- Start with existing action bars from profile (to preserve slots that might not be in current state)
+    if profile and profile.actionBars then
+        for slot, data in pairs(profile.actionBars) do
+            actionBars[slot] = data
+        end
+    end
+    
+    -- Now update with current state using the shared scanning helper
+    local current = ScanCurrentActionBars()
+    for slot = 1, self.MAX_ACTION_SLOTS do
+        if HasAction(slot) then
+            if current[slot] then
+                actionBars[slot] = current[slot]
+            end
+            -- If HasAction but scan returned nil (e.g. no name/texture), keep old profile data
         else
             -- Slot is empty - explicitly set to nil to clear it from profile
             actionBars[slot] = nil
@@ -189,6 +200,9 @@ end
 
 -- Load action bar state from saved data
 function Profiles:LoadActionBars(actionBars)
+    -- Suppress auto-save during bar restoration to avoid saving partial state
+    self.isRestoringBars = true
+    
     -- Always clear ALL action slots first (1-120) to ensure clean state
     -- This ensures that slots that were cleared in the profile are actually cleared
     for slot = 1, self.MAX_ACTION_SLOTS do
@@ -200,6 +214,8 @@ function Profiles:LoadActionBars(actionBars)
     
     -- If actionBars is empty or nil, we're done (all slots already cleared)
     if not actionBars or next(actionBars) == nil then
+        self.isRestoringBars = false
+        
         -- Update action bar display
         if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
             ConsoleExperience.actionbars:UpdateAllButtons()
@@ -266,6 +282,7 @@ function Profiles:LoadActionBars(actionBars)
             -- All slots restored, clean up
             restoreFrame:SetScript("OnUpdate", nil)
             restoreFrame:Hide()
+            Profiles.isRestoringBars = false
             
             -- Update action bar display
             if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
@@ -275,6 +292,83 @@ function Profiles:LoadActionBars(actionBars)
             CE_Debug("Profiles: Action bars restored (" .. slotsCount .. " slots)")
         end
     end)
+end
+
+-- ============================================================================
+-- Server Bar Snapshot/Restore
+-- When actionBarManaged is enabled, the addon snapshots the original server-side
+-- action bars on login and restores them on logout. This ensures the addon's
+-- device-specific controller mapping does not persist on the server, preserving
+-- the original action bar layout for other devices.
+-- ============================================================================
+
+-- Snapshot current server-side action bar state (in-memory only, NOT persisted)
+-- Called once during initialization, before any profile bars are loaded
+function Profiles:SnapshotServerBars()
+    if not self:IsActionBarManaged() then
+        return
+    end
+    
+    self.serverSnapshot = ScanCurrentActionBars()
+    
+    local count = self:CountTableKeys(self.serverSnapshot)
+    CE_Debug("Profiles: Snapshotted " .. count .. " server action bar slots")
+end
+
+-- Restore original server-side action bars from snapshot (synchronous)
+-- Called during PLAYER_LOGOUT to undo the addon's action bar modifications
+-- Uses synchronous restore (no OnUpdate throttling) since we're in the logout handler
+function Profiles:RestoreServerBars()
+    if not self:IsActionBarManaged() or not self.serverSnapshot then
+        return
+    end
+    
+    -- Suppress auto-save during server bar restoration
+    self.isRestoringBars = true
+    
+    -- Clear all current action slots
+    for slot = 1, self.MAX_ACTION_SLOTS do
+        if HasAction(slot) then
+            PickupAction(slot)
+            ClearCursor()
+        end
+    end
+    
+    -- Restore from snapshot (synchronous - no throttling needed during logout)
+    local restoredCount = 0
+    for slot, data in pairs(self.serverSnapshot) do
+        if data.type == "spell" and data.id then
+            PickupSpell(data.id, BOOKTYPE_SPELL)
+            PlaceAction(slot)
+            ClearCursor()
+            restoredCount = restoredCount + 1
+        elseif data.type == "macro" and data.id then
+            PickupMacro(data.id)
+            PlaceAction(slot)
+            ClearCursor()
+            restoredCount = restoredCount + 1
+        elseif data.type == "unknown" and data.name then
+            local spellID = FindSpellIDByName(data.name)
+            if spellID then
+                PickupSpell(spellID, BOOKTYPE_SPELL)
+                PlaceAction(slot)
+                ClearCursor()
+                restoredCount = restoredCount + 1
+            else
+                local macroID = FindMacroIDByName(data.name)
+                if macroID then
+                    PickupMacro(macroID)
+                    PlaceAction(slot)
+                    ClearCursor()
+                    restoredCount = restoredCount + 1
+                end
+            end
+        end
+    end
+    
+    self.isRestoringBars = false
+    
+    CE_Debug("Profiles: Restored " .. restoredCount .. " server action bar slots from snapshot")
 end
 
 -- ============================================================================
@@ -740,6 +834,10 @@ end
 
 -- Hook into action bar changes
 local function OnActionBarSlotChanged()
+    -- Skip auto-save during bar restoration (snapshot restore, profile load)
+    if Profiles.isRestoringBars then
+        return
+    end
     -- Skip auto-save if actionBarManaged is disabled (user wants server-side bars untouched)
     if not ConsoleExperience.profiles:IsActionBarManaged() then
         return
@@ -780,6 +878,25 @@ function Profiles:Initialize()
                     CE_Debug("Profiles: Synced proxied action from profile - slot " .. slot .. " -> " .. tostring(binding))
                 end
             end
+        end
+    end
+    
+    -- Snapshot current server-side action bars BEFORE loading profile bars
+    -- This captures the original server state so it can be restored on logout
+    self:SnapshotServerBars()
+    
+    -- Load profile action bars (deferred to next frame)
+    -- Since we restore original bars on logout, the server bars on login are the
+    -- original (non-addon) bars. We must load the profile's bars for the addon to work.
+    if self:IsActionBarManaged() then
+        local profile = self:GetCurrentProfile()
+        if profile and profile.actionBars and next(profile.actionBars) ~= nil then
+            local loadFrame = CreateFrame("Frame")
+            loadFrame:SetScript("OnUpdate", function()
+                loadFrame:SetScript("OnUpdate", nil)
+                Profiles:LoadActionBars(profile.actionBars)
+            end)
+            CE_Debug("Profiles: Queued profile action bar load for next frame")
         end
     end
     

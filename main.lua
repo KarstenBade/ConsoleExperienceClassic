@@ -130,6 +130,15 @@ ConsoleExperience:SetScript("OnEvent", function()
         end
         
     elseif event == "PLAYER_LOGOUT" then
+        -- Save current profile state (including action bars) before logout
+        if ConsoleExperience.profiles and ConsoleExperience.profiles.SaveCurrentProfile then
+            ConsoleExperience.profiles:SaveCurrentProfile()
+        end
+        -- Restore original server-side action bars from login snapshot
+        -- This prevents the addon's device-specific mapping from persisting on the server
+        if ConsoleExperience.profiles and ConsoleExperience.profiles.RestoreServerBars then
+            ConsoleExperience.profiles:RestoreServerBars()
+        end
         -- Save configuration
         ConsoleExperienceDB = ConsoleExperienceDB
     end
