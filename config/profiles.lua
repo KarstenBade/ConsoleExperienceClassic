@@ -16,6 +16,15 @@ local Profiles = ConsoleExperience.profiles
 Profiles.DEFAULT_PROFILE_NAME = "Default"
 Profiles.MAX_ACTION_SLOTS = 120  -- WoW 1.12 has 120 action slots total
 
+-- Check if action bar management via profiles is enabled
+-- Returns true if the addon should save/load action bar slot assignments
+function Profiles:IsActionBarManaged()
+    if not ConsoleExperienceDB or not ConsoleExperienceDB.config then
+        return true  -- Default to managed if config not yet loaded
+    end
+    return ConsoleExperienceDB.config.actionBarManaged ~= false
+end
+
 -- ============================================================================
 -- Profile Data Access
 -- ============================================================================
@@ -423,8 +432,7 @@ function Profiles:SaveCurrentProfile()
     -- Save action bars (only saves slots that have actions)
     -- Empty slots are not saved, which is fine because LoadActionBars clears all slots first
     -- Skip if actionBarManaged is disabled (user wants server-side bars untouched)
-    local actionBarManaged = not ConsoleExperienceDB.config or ConsoleExperienceDB.config.actionBarManaged ~= false
-    if actionBarManaged then
+    if self:IsActionBarManaged() then
         profile.actionBars = self:SaveActionBars()
         CE_Debug("Profiles: Saved " .. (self:CountTableKeys(profile.actionBars) or 0) .. " action bar slots")
     else
@@ -595,15 +603,14 @@ function Profiles:LoadProfile(profileName)
     
     -- Load action bars (with delay to ensure everything else is loaded first)
     -- Skip if actionBarManaged is disabled (user wants server-side bars untouched)
-    local actionBarManaged = not ConsoleExperienceDB.config or ConsoleExperienceDB.config.actionBarManaged ~= false
-    if actionBarManaged and profile.actionBars then
+    if self:IsActionBarManaged() and profile.actionBars then
         -- Use a small delay before loading action bars
         local loadFrame = CreateFrame("Frame")
         loadFrame:SetScript("OnUpdate", function()
             loadFrame:SetScript("OnUpdate", nil)
             Profiles:LoadActionBars(profile.actionBars)
         end)
-    elseif not actionBarManaged then
+    elseif not self:IsActionBarManaged() then
         CE_Debug("Profiles: Skipped action bar load (actionBarManaged is disabled)")
     end
     
@@ -734,8 +741,7 @@ end
 -- Hook into action bar changes
 local function OnActionBarSlotChanged()
     -- Skip auto-save if actionBarManaged is disabled (user wants server-side bars untouched)
-    local actionBarManaged = not ConsoleExperienceDB or not ConsoleExperienceDB.config or ConsoleExperienceDB.config.actionBarManaged ~= false
-    if not actionBarManaged then
+    if not ConsoleExperience.profiles:IsActionBarManaged() then
         return
     end
     -- Save current profile immediately when action bars change
