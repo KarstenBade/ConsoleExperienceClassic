@@ -112,6 +112,91 @@ local function IsUsingAddonActionBars()
     return true  -- Default to true (safe / non-destructive behavior)
 end
 
+-- Helper: true if the in-memory virtual bar table is already populated
+local function HasVirtualBars()
+    local AB = ConsoleExperience.actionbars
+    return AB and AB.virtualBars and next(AB.virtualBars) ~= nil
+end
+
+-- Helper: Read all filled native action slots (1-120) and return an actionBars
+-- table in the same {type, id, name, texture} format used by SaveActionBars.
+-- This reads from the server-side WoW action bar data and is used ONLY to
+-- seed the virtual bar table the first time the addon runs.
+local function ReadNativeActionBars()
+    local actionBars = {}
+    for slot = 1, Profiles.MAX_ACTION_SLOTS do
+        if HasAction(slot) then
+            local texture = GetActionTexture(slot)
+            GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+            GameTooltip:ClearLines()
+            GameTooltip:SetAction(slot)
+            local actionName = nil
+            local numLines = GameTooltip:NumLines() or 0
+            if numLines > 0 then
+                local firstLine = getglobal("GameTooltipTextLeft1")
+                if firstLine and firstLine.GetText then
+                    actionName = firstLine:GetText()
+                end
+            end
+            GameTooltip:Hide()
+            if actionName and texture then
+                local spellID = FindSpellIDByName(actionName)
+                if spellID then
+                    actionBars[slot] = { type = "spell",   id = spellID, name = actionName, texture = texture }
+                else
+                    local macroID = FindMacroIDByName(actionName)
+                    if macroID then
+                        actionBars[slot] = { type = "macro",   id = macroID, name = actionName, texture = texture }
+                    else
+                        actionBars[slot] = { type = "unknown", name = actionName, texture = texture }
+                    end
+                end
+            end
+        end
+    end
+    return actionBars
+end
+
+-- Populate the in-memory virtual bar table from the current native action bar
+-- slots.  Called:
+--  (a) During initial migration so the player's existing spell layout is
+--      preserved in the addon's client-side storage.
+--  (b) When the player enables "Use addon action bars" via the GUI while native
+--      slots still contain their previous spell layout.
+-- If the virtual bar table already has entries this is a no-op (we never
+-- overwrite an intentional layout).
+function Profiles:PopulateVirtualBarsFromNative()
+    local AB = ConsoleExperience.actionbars
+    if not AB then return end
+
+    -- Don't overwrite if the player already has a virtual layout
+    if HasVirtualBars() then
+        CE_Debug("Profiles: PopulateVirtualBarsFromNative skipped - virtual bars already populated")
+        return
+    end
+
+    CE_Debug("Profiles: Populating virtual bars from native action slots...")
+    local nativeBars = ReadNativeActionBars()
+    local count = 0
+    AB.virtualBars = AB.virtualBars or {}
+    for slot, data in pairs(nativeBars) do
+        AB.virtualBars[slot] = data
+        count = count + 1
+    end
+
+    -- Persist the imported layout into the current profile immediately
+    if count > 0 then
+        self:SaveCurrentProfile()
+    end
+
+    CE_Debug("Profiles: Imported " .. count .. " slots from native action bars")
+
+    -- Refresh the displayed buttons so the newly imported icons appear
+    if AB.UpdateAllButtons then
+        AB:UpdateAllButtons()
+    end
+end
+
 -- Save current action bar state.
 -- In addon-bars mode: reads from the in-memory virtual bar table maintained by bars.lua.
 -- In native mode:     reads from the server-side WoW action slots (legacy behavior).
@@ -136,68 +221,24 @@ function Profiles:SaveActionBars()
     -- ----------------------------------------------------------------
     -- Native mode (legacy): read from server-side action slots
     -- ----------------------------------------------------------------
-    local actionBars = {}
     local profile = self:GetCurrentProfile()
     
-    -- Start with existing action bars from profile (to preserve slots that might not be in current state)
+    -- Start with existing action bars from profile (to preserve slots not
+    -- captured this session)
+    local actionBars = {}
     if profile and profile.actionBars then
         for slot, data in pairs(profile.actionBars) do
             actionBars[slot] = data
         end
     end
     
-    -- Now update with current state - iterate through all possible action slots (1-120)
+    -- Overlay the current native state on top
+    for slot, data in pairs(ReadNativeActionBars()) do
+        actionBars[slot] = data
+    end
+    -- Explicitly clear any profile slot that is now empty in the native bars
     for slot = 1, self.MAX_ACTION_SLOTS do
-        if HasAction(slot) then
-            -- Get texture (always available)
-            local texture = GetActionTexture(slot)
-            
-            -- Get tooltip info to identify the action
-            GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
-            GameTooltip:ClearLines()
-            GameTooltip:SetAction(slot)
-            
-            local actionName = nil
-            local numLines = GameTooltip:NumLines() or 0
-            if numLines > 0 then
-                local firstLine = getglobal("GameTooltipTextLeft1")
-                if firstLine and firstLine.GetText then
-                    actionName = firstLine:GetText()
-                end
-            end
-            
-            GameTooltip:Hide()
-            
-            if actionName and texture then
-                -- Try to identify as spell
-                local spellID = FindSpellIDByName(actionName)
-                if spellID then
-                    actionBars[slot] = {
-                        type = "spell",
-                        id = spellID,
-                        name = actionName,
-                        texture = texture,
-                    }
-                else
-                    -- Try to identify as macro
-                    local macroID = FindMacroIDByName(actionName)
-                    if macroID then
-                        actionBars[slot] = {
-                            type = "macro",
-                            id = macroID,
-                            name = actionName,
-                            texture = texture,
-                        }
-                    else
-                        actionBars[slot] = {
-                            type = "unknown",
-                            name = actionName,
-                            texture = texture,
-                        }
-                    end
-                end
-            end
-        else
+        if not HasAction(slot) then
             actionBars[slot] = nil
         end
     end
@@ -208,6 +249,8 @@ end
 -- Load action bar state from saved data.
 -- In addon-bars mode: populates the virtual bar table in bars.lua without
 --                     touching the server-side native action slots at all.
+--                     If the saved profile has no entries, the native slots
+--                     are read once to seed the virtual bars (first-time setup).
 -- In native mode:     clears and refills native slots (legacy behavior).
 function Profiles:LoadActionBars(actionBars)
     -- ----------------------------------------------------------------
@@ -217,9 +260,25 @@ function Profiles:LoadActionBars(actionBars)
         if ConsoleExperience.actionbars then
             -- Initialize (or reset) the virtual bar table
             ConsoleExperience.actionbars.virtualBars = {}
-            if actionBars then
+            if actionBars and next(actionBars) ~= nil then
+                -- Use the saved virtual layout
                 for slot, data in pairs(actionBars) do
                     ConsoleExperience.actionbars.virtualBars[slot] = data
+                end
+            else
+                -- Profile has no saved virtual bars yet — seed from native slots
+                -- so the player's existing spell layout is immediately available.
+                CE_Debug("Profiles: No saved virtual bars — seeding from native slots")
+                local nativeBars = ReadNativeActionBars()
+                local importCount = 0
+                for slot, data in pairs(nativeBars) do
+                    ConsoleExperience.actionbars.virtualBars[slot] = data
+                    importCount = importCount + 1
+                end
+                CE_Debug("Profiles: Seeded " .. importCount .. " slots from native bars")
+                -- Persist the seeded layout immediately so it is saved on logout
+                if importCount > 0 then
+                    self:SaveCurrentProfile()
                 end
             end
             -- Refresh displayed buttons
@@ -228,8 +287,8 @@ function Profiles:LoadActionBars(actionBars)
             end
         end
         local count = 0
-        if actionBars then
-            for _ in pairs(actionBars) do count = count + 1 end
+        if ConsoleExperience.actionbars and ConsoleExperience.actionbars.virtualBars then
+            for _ in pairs(ConsoleExperience.actionbars.virtualBars) do count = count + 1 end
         end
         CE_Debug("Profiles: Action bars loaded into virtual storage (" .. count .. " slots)")
         return
@@ -719,8 +778,15 @@ function Profiles:MigrateLegacyConfig()
         end
     end
     
-    -- Save current action bar state
-    defaultProfile.actionBars = self:SaveActionBars()
+    -- Save current action bar state into the default profile.
+    -- In addon-bars mode, SaveActionBars reads from virtualBars (empty at this
+    -- point) so we fall back to reading native slots directly to seed the profile.
+    if IsUsingAddonActionBars() then
+        defaultProfile.actionBars = ReadNativeActionBars()
+        CE_Debug("Profiles: Seeded default profile action bars from native slots (" .. self:CountTableKeys(defaultProfile.actionBars) .. " slots)")
+    else
+        defaultProfile.actionBars = self:SaveActionBars()
+    end
     
     -- Store default profile
     ConsoleExperienceDB.profiles[self.DEFAULT_PROFILE_NAME] = defaultProfile

@@ -1153,9 +1153,27 @@ function Config:CreateBarsSection()
         Config:Set("autoRankEnabled", checked)
     end)
     
+    -- Row 1b: Addon action bars toggle (full-width, below row 1)
+    local addonBarsCheck = self:CreateCheckbox(generalBox, T("Use addon action bars (recommended)"),
+        function() return Config:Get("useAddonActionBars") ~= false end,
+        function(checked)
+            Config:Set("useAddonActionBars", checked)
+            -- If enabling, populate virtual bars from native slots if currently empty
+            if checked and ConsoleExperience.actionbars then
+                if ConsoleExperience.profiles and ConsoleExperience.profiles.PopulateVirtualBarsFromNative then
+                    ConsoleExperience.profiles:PopulateVirtualBarsFromNative()
+                end
+            end
+            if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
+                ConsoleExperience.actionbars:UpdateAllButtons()
+            end
+        end,
+        T("When enabled, spell assignments are stored client-side only and never modify your server-side action bars. Recommended to avoid overwriting your native layout on PCs without this addon."))
+    addonBarsCheck:SetPoint("TOPLEFT", appearanceLabel, "BOTTOMLEFT", 0, -18)  -- 18px below label row (checkbox is taller than a font string)
+    
     -- Row 2: Positioning options (Size, Pad, X, Y, Star, Scale) + Reset button
     local sizeLabel = generalBox:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sizeLabel:SetPoint("TOPLEFT", appearanceLabel, "BOTTOMLEFT", 0, -15)
+    sizeLabel:SetPoint("TOPLEFT", addonBarsCheck, "BOTTOMLEFT", 0, -12)  -- 12px below addon-bars checkbox
     sizeLabel:SetText(T("Size") .. ":")
     
     local sizeEditBox = self:CreateEditBox(generalBox, 35,
