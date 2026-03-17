@@ -102,11 +102,40 @@ local function FindMacroIDByName(macroName)
     return nil
 end
 
--- Save current action bar state
--- Returns a table mapping slot -> action data
--- Note: We save ALL slots (1-120), including empty ones as nil entries
--- This ensures that when loading, we can clear slots that were previously filled
+-- Helper: Check if addon action bars mode is active
+-- When true the addon stores spells in its own SavedVariables and never
+-- reads from or writes to the server-side native action bar slots.
+local function IsUsingAddonActionBars()
+    if ConsoleExperience.config and ConsoleExperience.config.Get then
+        return ConsoleExperience.config:Get("useAddonActionBars") ~= false
+    end
+    return true  -- Default to true (safe / non-destructive behavior)
+end
+
+-- Save current action bar state.
+-- In addon-bars mode: reads from the in-memory virtual bar table maintained by bars.lua.
+-- In native mode:     reads from the server-side WoW action slots (legacy behavior).
+-- Returns a table mapping slot -> action data.
 function Profiles:SaveActionBars()
+    -- ----------------------------------------------------------------
+    -- Addon action bars mode: read from virtual storage, not native slots
+    -- ----------------------------------------------------------------
+    if IsUsingAddonActionBars() then
+        local result = {}
+        if ConsoleExperience.actionbars and ConsoleExperience.actionbars.virtualBars then
+            for slot, data in pairs(ConsoleExperience.actionbars.virtualBars) do
+                if data then
+                    result[slot] = data
+                end
+            end
+        end
+        CE_Debug("Profiles: SaveActionBars (addon mode) - " .. Profiles:CountTableKeys(result) .. " slots")
+        return result
+    end
+
+    -- ----------------------------------------------------------------
+    -- Native mode (legacy): read from server-side action slots
+    -- ----------------------------------------------------------------
     local actionBars = {}
     local profile = self:GetCurrentProfile()
     
@@ -146,7 +175,7 @@ function Profiles:SaveActionBars()
                     actionBars[slot] = {
                         type = "spell",
                         id = spellID,
-                        name = actionName,  -- Store name for reference
+                        name = actionName,
                         texture = texture,
                     }
                 else
@@ -156,11 +185,10 @@ function Profiles:SaveActionBars()
                         actionBars[slot] = {
                             type = "macro",
                             id = macroID,
-                            name = actionName,  -- Store name for reference
+                            name = actionName,
                             texture = texture,
                         }
                     else
-                        -- Unknown type - save what we can
                         actionBars[slot] = {
                             type = "unknown",
                             name = actionName,
@@ -170,7 +198,6 @@ function Profiles:SaveActionBars()
                 end
             end
         else
-            -- Slot is empty - explicitly set to nil to clear it from profile
             actionBars[slot] = nil
         end
     end
@@ -178,10 +205,39 @@ function Profiles:SaveActionBars()
     return actionBars
 end
 
--- Load action bar state from saved data
+-- Load action bar state from saved data.
+-- In addon-bars mode: populates the virtual bar table in bars.lua without
+--                     touching the server-side native action slots at all.
+-- In native mode:     clears and refills native slots (legacy behavior).
 function Profiles:LoadActionBars(actionBars)
-    -- Always clear ALL action slots first (1-120) to ensure clean state
-    -- This ensures that slots that were cleared in the profile are actually cleared
+    -- ----------------------------------------------------------------
+    -- Addon action bars mode: populate virtual storage only
+    -- ----------------------------------------------------------------
+    if IsUsingAddonActionBars() then
+        if ConsoleExperience.actionbars then
+            -- Initialize (or reset) the virtual bar table
+            ConsoleExperience.actionbars.virtualBars = {}
+            if actionBars then
+                for slot, data in pairs(actionBars) do
+                    ConsoleExperience.actionbars.virtualBars[slot] = data
+                end
+            end
+            -- Refresh displayed buttons
+            if ConsoleExperience.actionbars.UpdateAllButtons then
+                ConsoleExperience.actionbars:UpdateAllButtons()
+            end
+        end
+        local count = 0
+        if actionBars then
+            for _ in pairs(actionBars) do count = count + 1 end
+        end
+        CE_Debug("Profiles: Action bars loaded into virtual storage (" .. count .. " slots)")
+        return
+    end
+
+    -- ----------------------------------------------------------------
+    -- Native mode (legacy): clear and refill server-side action slots
+    -- ----------------------------------------------------------------
     for slot = 1, self.MAX_ACTION_SLOTS do
         if HasAction(slot) then
             PickupAction(slot)
@@ -189,18 +245,14 @@ function Profiles:LoadActionBars(actionBars)
         end
     end
     
-    -- If actionBars is empty or nil, we're done (all slots already cleared)
     if not actionBars or next(actionBars) == nil then
-        -- Update action bar display
         if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
             ConsoleExperience.actionbars:UpdateAllButtons()
         end
-        
         CE_Debug("Profiles: All action bars cleared (empty profile)")
         return
     end
     
-    -- Small delay to ensure cursor is cleared before placing actions
     local restoreFrame = CreateFrame("Frame")
     local slotsToRestore = {}
     for slot, data in pairs(actionBars) do
@@ -213,30 +265,22 @@ function Profiles:LoadActionBars(actionBars)
     restoreFrame:SetScript("OnUpdate", function()
         local elapsed = arg1
         restoreDelay = restoreDelay + elapsed
-        -- Wait a small amount before starting restoration
-        if restoreDelay < 0.1 then
-            return
-        end
+        if restoreDelay < 0.1 then return end
         
-        -- Restore one slot per frame to avoid overwhelming the game
         if currentIndex <= slotsCount then
             local item = slotsToRestore[currentIndex]
             local slot = item.slot
             local data = item.data
             
-            -- Restore the action based on type
             if data.type == "spell" and data.id then
-                -- Restore spell using spell ID
                 PickupSpell(data.id, BOOKTYPE_SPELL)
                 PlaceAction(slot)
                 ClearCursor()
             elseif data.type == "macro" and data.id then
-                -- Restore macro using macro ID
                 PickupMacro(data.id)
                 PlaceAction(slot)
                 ClearCursor()
             elseif data.type == "unknown" and data.name then
-                -- Try to find and restore by name (spell or macro)
                 local spellID = FindSpellIDByName(data.name)
                 if spellID then
                     PickupSpell(spellID, BOOKTYPE_SPELL)
@@ -254,15 +298,11 @@ function Profiles:LoadActionBars(actionBars)
             
             currentIndex = currentIndex + 1
         else
-            -- All slots restored, clean up
             restoreFrame:SetScript("OnUpdate", nil)
             restoreFrame:Hide()
-            
-            -- Update action bar display
             if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
                 ConsoleExperience.actionbars:UpdateAllButtons()
             end
-            
             CE_Debug("Profiles: Action bars restored (" .. slotsCount .. " slots)")
         end
     end)
@@ -724,7 +764,13 @@ end
 
 -- Hook into action bar changes
 local function OnActionBarSlotChanged()
-    -- Save current profile immediately when action bars change
+    -- In addon action bars mode the virtual bar table is updated directly by
+    -- ButtonOnReceiveDrag / ButtonOnDragStart, so native ACTIONBAR_SLOT_CHANGED
+    -- events are irrelevant and should not trigger a save.
+    if IsUsingAddonActionBars() then
+        return
+    end
+    -- Native mode: save current profile immediately when action bars change
     if ConsoleExperience.profiles and ConsoleExperience.profiles.SaveCurrentProfile then
         ConsoleExperience.profiles:SaveCurrentProfile()
         CE_Debug("Profiles: Auto-saved profile after action bar change (slot " .. (arg1 or "unknown") .. ")")

@@ -61,7 +61,103 @@ ActionBars.BONUS_BAR_BASE = 60  -- (6 pages * 12 buttons) - 12 = 60
 -- Current active page
 ActionBars.currentPage = 1
 
--- Get current druid form name (returns nil if not druid or in caster form)
+-- ============================================================================
+-- Virtual Action Bar Storage
+--
+-- When useAddonActionBars = true (the default), spells are stored ONLY in
+-- this table and in ConsoleExperienceDB (both client-side).  Native WoW
+-- action-bar slots (server-side) are never read from or written to.
+--
+-- Key   = action slot number, identical to the slot that GetActionOffset()
+--         would produce for a given button/page combination.
+-- Value = { type, id, name, texture }  (same format as profile.actionBars)
+-- ============================================================================
+
+ActionBars.virtualBars = {}       -- in-memory virtual bar table
+ActionBars.draggingFromSlot = nil  -- source slot being dragged (for swap logic)
+
+-- Check whether addon action bars mode is active.
+function ActionBars:IsUsingAddonActionBars()
+    if ConsoleExperience.config and ConsoleExperience.config.Get then
+        return ConsoleExperience.config:Get("useAddonActionBars") ~= false
+    end
+    return true
+end
+
+-- Return the virtual data for a slot (or nil if empty).
+function ActionBars:GetVirtualData(slot)
+    if not self.virtualBars then return nil end
+    return self.virtualBars[slot]
+end
+
+-- True when a virtual slot has an assigned action.
+function ActionBars:HasVirtualAction(slot)
+    local data = self:GetVirtualData(slot)
+    return data ~= nil and (data.name ~= nil or data.texture ~= nil)
+end
+
+-- Find the highest-rank spellbook index for a spell name.
+-- Uses the same base-name matching as autorank.lua so rank suffixes are ignored.
+function ActionBars:FindCurrentSpellIndex(spellName)
+    if not spellName then return nil end
+    local baseName = string.gsub(spellName, " %(Rank %d+%)", "")
+    local i = 1
+    local bestIndex, bestRank = nil, -1
+    while true do
+        local name, rank = GetSpellName(i, BOOKTYPE_SPELL)
+        if not name then break end
+        local base = string.gsub(name, " %(Rank %d+%)", "")
+        if base == baseName then
+            local rankNum = tonumber(string.match(rank or "", "%d+")) or 0
+            if rankNum > bestRank then
+                bestRank = rankNum
+                bestIndex = i
+            end
+        end
+        i = i + 1
+    end
+    return bestIndex
+end
+
+-- Execute a macro that lives only in virtual storage.
+-- Places it briefly on a temporary native slot, fires it, then cleans up.
+-- The temporary slot (VIRTUAL_MACRO_TEMP_SLOT) is in the high bonus-bar
+-- range that the addon never otherwise writes to.
+ActionBars.VIRTUAL_MACRO_TEMP_SLOT = 118
+
+function ActionBars:ExecuteMacroVirtual(macroID)
+    if not macroID then return end
+    local TEMP = self.VIRTUAL_MACRO_TEMP_SLOT
+    -- Clear the temp slot if it already has something
+    if HasAction(TEMP) then
+        PickupAction(TEMP)
+        ClearCursor()
+    end
+    PickupMacro(macroID)
+    PlaceAction(TEMP)
+    UseAction(TEMP, 1)
+    -- Schedule cleanup on the next frame so we don't interfere with a
+    -- targeting cursor that the macro may have started.
+    if not self._macroCleanupFrame then
+        self._macroCleanupFrame = CreateFrame("Frame")
+        self._macroCleanupFrame:SetScript("OnUpdate", function()
+            this:Hide()
+            local t = ActionBars.VIRTUAL_MACRO_TEMP_SLOT
+            if HasAction(t) and not SpellIsTargeting() then
+                PickupAction(t)
+                ClearCursor()
+            end
+        end)
+    end
+    self._macroCleanupFrame:Show()
+end
+
+-- Persist virtual bar changes to the current profile's saved data immediately.
+function ActionBars:SaveVirtualBars()
+    if ConsoleExperience.profiles and ConsoleExperience.profiles.SaveCurrentProfile then
+        ConsoleExperience.profiles:SaveCurrentProfile()
+    end
+end
 function ActionBars:GetCurrentDruidForm()
     local _, class = UnitClass("player")
     if class ~= "DRUID" then return nil end
@@ -663,7 +759,17 @@ function ActionBars:UpdateButton(button)
     local buttonID = button:GetID()
     local icon = getglobal(button:GetName().."Icon")
     local cooldown = getglobal(button:GetName().."Cooldown")
-    local texture = GetActionTexture(actionID)
+
+    -- In addon-bars mode resolve the texture from virtual storage;
+    -- in native mode fall through to the WoW action-slot API as before.
+    local texture
+    local virtualData
+    if self:IsUsingAddonActionBars() then
+        virtualData = self:GetVirtualData(actionID)
+        texture = virtualData and virtualData.texture or nil
+    else
+        texture = GetActionTexture(actionID)
+    end
     
     -- Check if D-pad buttons (5, 6, 7, 8) should be hidden in healer mode
     -- Only hide base D-pad buttons on page 1 (no modifiers), and only when in party/raid
@@ -750,11 +856,17 @@ function ActionBars:UpdateButton(button)
         self:UpdateButtonCount(button)
         self:UpdateButtonFlash(button)
         
-        -- Initialize range timer for range checking (only if action has range)
-        if HasAction(actionID) and ActionHasRange(actionID) then
-            button.rangeTimer = self.RANGE_CHECK_TIME
+        -- Initialize range timer
+        if self:IsUsingAddonActionBars() then
+            -- Virtual mode: tentatively enable range timer if the spell has a range
+            -- (IsSpellInRange will return nil for spells without a target requirement)
+            button.rangeTimer = (virtualData and virtualData.name) and self.RANGE_CHECK_TIME or nil
         else
-            button.rangeTimer = nil
+            if HasAction(actionID) and ActionHasRange(actionID) then
+                button.rangeTimer = self.RANGE_CHECK_TIME
+            else
+                button.rangeTimer = nil
+            end
         end
     else
         icon:Hide()
@@ -787,13 +899,12 @@ function ActionBars:UpdateButton(button)
         button:Show()
     end
     
-    -- Update equipped border (only if not a proxied action)
+    -- Update equipped border
     local border = getglobal(button:GetName().."Border")
     if border then
         if button.isProxiedAction then
-            -- Hide border for proxied actions
             border:Hide()
-        elseif IsEquippedAction(actionID) then
+        elseif not self:IsUsingAddonActionBars() and IsEquippedAction(actionID) then
             border:SetVertexColor(0, 1.0, 0, 0.35)
             border:Show()
         else
@@ -811,6 +922,8 @@ function ActionBars:UpdateButton(button)
     if macroName then
         if button.isProxiedAction then
             macroName:SetText(button.isProxiedAction.name)
+        elseif self:IsUsingAddonActionBars() then
+            macroName:SetText(virtualData and virtualData.name or "")
         else
             macroName:SetText(GetActionText(actionID))
         end
@@ -1103,30 +1216,38 @@ end
 
 function ActionBars:UpdateButtonState(button)
     local actionID = self:GetActionID(button)
-    local active = IsCurrentAction(actionID) or IsAutoRepeatAction(actionID)
-    
+    local active = false
+
+    if self:IsUsingAddonActionBars() then
+        -- Virtual mode: query active/auto-repeat state directly from the spell
+        local data = self:GetVirtualData(actionID)
+        if data and data.type == "spell" and data.id then
+            -- IsCurrentSpell / IsAutoRepeatSpell exist in WoW 1.12
+            local cur = IsCurrentSpell and IsCurrentSpell(data.id, BOOKTYPE_SPELL)
+            local rep = IsAutoRepeatSpell and IsAutoRepeatSpell(data.id, BOOKTYPE_SPELL)
+            active = (cur == 1) or (rep == 1)
+        end
+    else
+        active = IsCurrentAction(actionID) or IsAutoRepeatAction(actionID)
+    end
+
     if active then
         button:SetChecked(1)
-        
-        -- Show active glow/border (casting indicator)
         if button.activeFrame then
             button.activeFrame.glow:Show()
             if button.activeFrame.border then
-                -- Get class color for border (like pfUI)
                 local _, class = UnitClass("player")
                 local color = RAID_CLASS_COLORS[class]
                 if color then
                     button.activeFrame.border:SetVertexColor(color.r, color.g, color.b, 1.0)
                 else
-                    button.activeFrame.border:SetVertexColor(1.0, 1.0, 0.5, 1.0) -- Default yellow
+                    button.activeFrame.border:SetVertexColor(1.0, 1.0, 0.5, 1.0)
                 end
                 button.activeFrame.border:Show()
             end
         end
     else
         button:SetChecked(0)
-        
-        -- Hide active glow/border
         if button.activeFrame then
             button.activeFrame.glow:Hide()
             if button.activeFrame.border then
@@ -1140,62 +1261,56 @@ function ActionBars:UpdateButtonUsable(button)
     local actionID = self:GetActionID(button)
     local icon = getglobal(button:GetName().."Icon")
     local normalTexture = getglobal(button:GetName().."NormalTexture")
-    local overlay = getglobal(button:GetName().."Overlay")  -- Modern style overlay
+    local overlay = getglobal(button:GetName().."Overlay")
     if not icon then return end
-    
-    local isUsable, notEnoughMana = IsUsableAction(actionID)
+
+    local isUsable, notEnoughMana
+
+    if self:IsUsingAddonActionBars() then
+        -- Virtual mode: query usability directly from the spell name
+        local data = self:GetVirtualData(actionID)
+        if data and data.name then
+            -- IsUsableSpell accepts a spell name in WoW 1.12
+            isUsable, notEnoughMana = IsUsableSpell(data.name)
+        else
+            isUsable = true  -- empty slot treated as usable (no coloring needed)
+        end
+    else
+        isUsable, notEnoughMana = IsUsableAction(actionID)
+    end
+
     local newVertexState = 0
     
-    -- Check range first (if out of range, show red)
     if button.outofrange then
         newVertexState = 1
         if button.vertexstate ~= 1 then
             icon:SetVertexColor(self.RANGE_COLOR[1], self.RANGE_COLOR[2], self.RANGE_COLOR[3], self.RANGE_COLOR[4])
-            if normalTexture then
-                normalTexture:SetVertexColor(self.RANGE_COLOR[1], self.RANGE_COLOR[2], self.RANGE_COLOR[3], self.RANGE_COLOR[4])
-            end
-            if overlay then
-                overlay:SetVertexColor(self.RANGE_COLOR[1], self.RANGE_COLOR[2], self.RANGE_COLOR[3], self.RANGE_COLOR[4])
-            end
+            if normalTexture then normalTexture:SetVertexColor(self.RANGE_COLOR[1], self.RANGE_COLOR[2], self.RANGE_COLOR[3], self.RANGE_COLOR[4]) end
+            if overlay then overlay:SetVertexColor(self.RANGE_COLOR[1], self.RANGE_COLOR[2], self.RANGE_COLOR[3], self.RANGE_COLOR[4]) end
             button.vertexstate = 1
         end
-    -- Usable - Blizzard colors from constants
     elseif isUsable then
         newVertexState = 0
         if button.vertexstate ~= 0 then
             icon:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4])
-            if normalTexture then
-                normalTexture:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4])
-            end
-            if overlay then
-                overlay:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4])
-            end
+            if normalTexture then normalTexture:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4]) end
+            if overlay then overlay:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4]) end
             button.vertexstate = 0
         end
-    -- Not enough mana - Blizzard colors from constants
     elseif notEnoughMana then
         newVertexState = 2
         if button.vertexstate ~= 2 then
             icon:SetVertexColor(self.OOM_COLOR[1], self.OOM_COLOR[2], self.OOM_COLOR[3], self.OOM_COLOR[4])
-            if normalTexture then
-                normalTexture:SetVertexColor(self.OOM_COLOR[1], self.OOM_COLOR[2], self.OOM_COLOR[3], self.OOM_COLOR[4])
-            end
-            if overlay then
-                overlay:SetVertexColor(self.OOM_COLOR[1], self.OOM_COLOR[2], self.OOM_COLOR[3], self.OOM_COLOR[4])
-            end
+            if normalTexture then normalTexture:SetVertexColor(self.OOM_COLOR[1], self.OOM_COLOR[2], self.OOM_COLOR[3], self.OOM_COLOR[4]) end
+            if overlay then overlay:SetVertexColor(self.OOM_COLOR[1], self.OOM_COLOR[2], self.OOM_COLOR[3], self.OOM_COLOR[4]) end
             button.vertexstate = 2
         end
-    -- Not usable - Blizzard behavior: icon gray, border white
     else
         newVertexState = 3
         if button.vertexstate ~= 3 then
             icon:SetVertexColor(self.NA_COLOR[1], self.NA_COLOR[2], self.NA_COLOR[3], self.NA_COLOR[4])
-            if normalTexture then
-                normalTexture:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4])
-            end
-            if overlay then
-                overlay:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4])
-            end
+            if normalTexture then normalTexture:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4]) end
+            if overlay then overlay:SetVertexColor(self.NORMAL_COLOR[1], self.NORMAL_COLOR[2], self.NORMAL_COLOR[3], self.NORMAL_COLOR[4]) end
             button.vertexstate = 3
         end
     end
@@ -1204,15 +1319,23 @@ end
 function ActionBars:UpdateButtonCooldown(button)
     local actionID = self:GetActionID(button)
     local cooldown = getglobal(button:GetName().."Cooldown")
-    local start, duration, enable = GetActionCooldown(actionID)
-    
-    -- Hide default square cooldown - we use our own for both styles
-    if cooldown then
-        cooldown:Hide()
+    if cooldown then cooldown:Hide() end
+
+    local start, duration, enable
+
+    if self:IsUsingAddonActionBars() then
+        -- Virtual mode: query cooldown from the spellbook slot
+        local data = self:GetVirtualData(actionID)
+        if data and data.type == "spell" and data.id then
+            -- Use stored index; FindCurrentSpellIndex gives the highest-rank slot
+            local idx = self:FindCurrentSpellIndex(data.name) or data.id
+            start, duration, enable = GetSpellCooldown(idx, BOOKTYPE_SPELL)
+        end
+    else
+        start, duration, enable = GetActionCooldown(actionID)
     end
-    
-    -- Use our cooldown (darkened icon + timer text) for both modern and classic
-    if enable == 1 and duration > 0 then
+
+    if enable and enable == 1 and duration and duration > 0 then
         self:StartCircularCooldown(button, start, duration)
     else
         self:StopCircularCooldown(button)
@@ -1223,7 +1346,8 @@ function ActionBars:UpdateButtonCount(button)
     local actionID = self:GetActionID(button)
     local count = getglobal(button:GetName().."Count")
     if count then
-        if IsConsumableAction(actionID) then
+        -- Virtual mode: spells don't have counts; only show for native consumables
+        if not self:IsUsingAddonActionBars() and IsConsumableAction(actionID) then
             count:SetText(GetActionCount(actionID))
         else
             count:SetText("")
@@ -1233,10 +1357,24 @@ end
 
 function ActionBars:UpdateButtonFlash(button)
     local actionID = self:GetActionID(button)
-    if (IsAttackAction(actionID) and IsCurrentAction(actionID)) or IsAutoRepeatAction(actionID) then
-        self:StartFlash(button)
-    else
+
+    if self:IsUsingAddonActionBars() then
+        -- Virtual mode: flash for auto-repeat spells (e.g. Auto Shot / Shoot)
+        local data = self:GetVirtualData(actionID)
+        if data and data.type == "spell" and data.id then
+            local rep = IsAutoRepeatSpell and IsAutoRepeatSpell(data.id, BOOKTYPE_SPELL)
+            if rep == 1 then
+                self:StartFlash(button)
+                return
+            end
+        end
         self:StopFlash(button)
+    else
+        if (IsAttackAction(actionID) and IsCurrentAction(actionID)) or IsAutoRepeatAction(actionID) then
+            self:StartFlash(button)
+        else
+            self:StopFlash(button)
+        end
     end
 end
 
@@ -1386,33 +1524,43 @@ function ActionBars:ButtonOnUpdate(button, elapsed)
         end
     end
     
-    -- Handle range checking (like pfUI)
+    -- Handle range checking
     if button.rangeTimer then
         button.rangeTimer = button.rangeTimer - elapsed
         if button.rangeTimer <= 0 then
-            -- Check if action has range and is out of range
-            if HasAction(actionID) and ActionHasRange(actionID) then
-                local inRange = IsActionInRange(actionID)
-                if inRange == 0 then -- Out of range
-                    if not button.outofrange then
-                        button.outofrange = true
-                        self:UpdateButtonUsable(button)
-                    end
-                else -- In range or nil (no target)
-                    if button.outofrange then
-                        button.outofrange = nil
-                        self:UpdateButtonUsable(button)
-                    end
+            local inRange = nil
+
+            if self:IsUsingAddonActionBars() then
+                -- Virtual mode: use spell-name-based range check
+                local data = self:GetVirtualData(actionID)
+                if data and data.name and IsSpellInRange then
+                    inRange = IsSpellInRange(data.name, "target")
                 end
             else
-                -- Action doesn't have range, clear out of range state
+                if HasAction(actionID) and ActionHasRange(actionID) then
+                    inRange = IsActionInRange(actionID)
+                end
+            end
+
+            if inRange == 0 then
+                if not button.outofrange then
+                    button.outofrange = true
+                    self:UpdateButtonUsable(button)
+                end
+            else
                 if button.outofrange then
                     button.outofrange = nil
                     self:UpdateButtonUsable(button)
                 end
+                -- If inRange is nil in virtual mode the spell has no range requirement;
+                -- disable the range timer to avoid unnecessary checks
+                if self:IsUsingAddonActionBars() and inRange == nil then
+                    button.rangeTimer = nil
+                    return
+                end
             end
             
-            -- Update hotkey color (legacy support)
+            -- Update hotkey color
             local hotkey = getglobal(button:GetName().."HotKey")
             if hotkey then
                 if button.outofrange then
@@ -1600,8 +1748,7 @@ end
 -- ============================================================================
 
 function ActionBars:ButtonOnClick(button, mouseButton)
-    -- Check if this is a protected proxied action (like JUMP, AUTORUN)
-    -- Protected functions can only be executed via keyboard bindings, not mouse clicks in WoW 1.12
+    -- Protected proxied actions (like JUMP) can only run via keybinding
     if button.isProxiedAction then
         local bindingID = button.isProxiedAction.id
         if ConsoleExperience.proxied and ConsoleExperience.proxied.IsProtectedBinding then
@@ -1610,8 +1757,6 @@ function ActionBars:ButtonOnClick(button, mouseButton)
                 DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[ConsoleExperience]|r " .. actionName .. " can only be used via keyboard binding, not mouse click.")
                 return
             end
-            -- Non-protected proxied actions (like UI toggles) might work, but we'll let them try
-            -- If they fail, it's not a protected function issue
         end
     end
     
@@ -1621,84 +1766,54 @@ function ActionBars:ButtonOnClick(button, mouseButton)
     local offset = self:GetActionOffset()
     local actionID = offset + buttonID
 
-    -- Debug output for stance issues
-    CE_Debug("Click: Btn=" .. buttonID .. " Page=" .. currentPage .. " Bonus=" .. bonusBar .. " Off=" .. offset .. " Slot=" .. actionID .. " Has=" .. tostring(HasAction(actionID)))
+    CE_Debug("Click: Btn=" .. buttonID .. " Page=" .. currentPage .. " Bonus=" .. bonusBar .. " Off=" .. offset .. " Slot=" .. actionID)
 
     if MacroFrame_SaveMacro then
         MacroFrame_SaveMacro()
     end
 
-    -- Check if healer mode is enabled and cursor is over a party/raid/player frame
+    -- ----------------------------------------------------------------
+    -- Healer mode: cast on hovered party/raid frame
+    -- ----------------------------------------------------------------
     CE_Debug("ButtonOnClick: Checking healer mode, actionID=" .. actionID)
     if self:ShouldCastOnHealerTarget() then
         CE_Debug("ButtonOnClick: Healer mode check passed")
         local Cursor = ConsoleExperience.cursor
         local currentButton = Cursor.navigationState.currentButton
-        CE_Debug("ButtonOnClick: Current button: " .. (currentButton and (currentButton:GetName() or "unnamed") or "nil"))
-        
         local unit = self:GetUnitFromFrame(currentButton)
         CE_Debug("ButtonOnClick: Got unit from frame: " .. (unit or "nil"))
-        
+
         if unit then
-            -- Verify unit exists
-            local unitName = UnitName(unit)
-            CE_Debug("ButtonOnClick: Unit '" .. unit .. "' name: " .. (unitName or "nil"))
-            
-            -- Get spell name from action slot
-            local spellName = self:GetSpellNameFromSlot(actionID)
+            -- Resolve the spell name: prefer virtual data, fall back to slot tooltip
+            local spellName
+            if self:IsUsingAddonActionBars() then
+                local data = self:GetVirtualData(actionID)
+                spellName = data and data.name or nil
+            else
+                spellName = self:GetSpellNameFromSlot(actionID)
+            end
+
             if spellName then
                 CE_Debug("ButtonOnClick: Got spell name: " .. spellName)
-                
-                -- Save current target if we have one (and it's not the unit we want to cast on)
-                local hadTarget = false
-                if UnitName("target") and not UnitIsUnit("target", unit) then
-                    hadTarget = true
-                    CE_Debug("ButtonOnClick: Saving current target before casting")
-                end
-                
-                -- Cast spell by name (this puts us in targeting mode)
-                CE_Debug("ButtonOnClick: Calling CastSpellByName('" .. spellName .. "')")
+                local hadTarget = (UnitName("target") and not UnitIsUnit("target", unit)) and true or false
                 CastSpellByName(spellName)
-                
-                -- Target the unit
-                CE_Debug("ButtonOnClick: Calling SpellTargetUnit('" .. unit .. "')")
                 SpellTargetUnit(unit)
-                
-                -- Restore previous target if we had one
-                if hadTarget then
-                    CE_Debug("ButtonOnClick: Restoring previous target")
-                    TargetLastTarget()
-                end
-                
+                if hadTarget then TargetLastTarget() end
                 CE_Debug("ButtonOnClick: Healer mode: Casting " .. spellName .. " on " .. unit)
             else
-                -- No spell name found, fall back to UseAction
-                CE_Debug("ButtonOnClick: No spell name found, using UseAction")
-                UseAction(actionID, 1)
-                
-                -- If spell is awaiting target selection, check if we can cast on the unit
-                if SpellIsTargeting() then
-                    CE_Debug("ButtonOnClick: Spell is targeting")
-                    -- Check if the spell can target this unit
-                    local canTarget = SpellCanTargetUnit(unit)
-                    CE_Debug("ButtonOnClick: SpellCanTargetUnit('" .. unit .. "') = " .. tostring(canTarget))
-                    
-                    if canTarget then
-                        -- Cast on the unit
-                        CE_Debug("ButtonOnClick: Calling SpellTargetUnit('" .. unit .. "')")
-                        SpellTargetUnit(unit)
-                        CE_Debug("ButtonOnClick: Healer mode: Casting action " .. actionID .. " on " .. unit)
-                    else
-                        -- Can't target this unit, let it work normally
-                        CE_Debug("ButtonOnClick: Healer mode: Cannot cast action " .. actionID .. " on " .. unit .. " (invalid target, using default behavior)")
+                -- No spell name: try UseAction as fallback (native mode only)
+                if not self:IsUsingAddonActionBars() then
+                    CE_Debug("ButtonOnClick: No spell name found, using UseAction")
+                    UseAction(actionID, 1)
+                    if SpellIsTargeting() then
+                        local canTarget = SpellCanTargetUnit(unit)
+                        if canTarget then
+                            SpellTargetUnit(unit)
+                        end
                     end
-                else
-                    -- Spell doesn't require targeting (instant cast, self-buff, etc.)
-                    CE_Debug("ButtonOnClick: Healer mode: Used action " .. actionID .. " (no targeting required)")
                 end
             end
-            
-            -- Always update button state and return (action already used)
+
             self:UpdateButtonState(button)
             return
         else
@@ -1708,22 +1823,110 @@ function ActionBars:ButtonOnClick(button, mouseButton)
         CE_Debug("ButtonOnClick: Healer mode check failed or not applicable")
     end
 
-    -- Normal action use
-    UseAction(actionID, 1)
+    -- ----------------------------------------------------------------
+    -- Normal action execution
+    -- ----------------------------------------------------------------
+    if self:IsUsingAddonActionBars() then
+        -- Virtual mode: cast directly using spell/macro APIs, never UseAction
+        local data = self:GetVirtualData(actionID)
+        if data then
+            if data.type == "spell" and data.name then
+                CastSpellByName(data.name)
+            elseif data.type == "macro" and data.id then
+                self:ExecuteMacroVirtual(data.id)
+            elseif data.name then
+                -- Unknown type: attempt as spell name
+                CastSpellByName(data.name)
+            end
+        end
+    else
+        -- Native mode: delegate to WoW action-slot system
+        UseAction(actionID, 1)
+    end
+
     self:UpdateButtonState(button)
 end
 
 function ActionBars:ButtonOnDragStart(button)
-    local actionID = self:GetActionID(button)
-    PickupAction(actionID)
+    if self:IsUsingAddonActionBars() then
+        -- Virtual mode: put the spell/macro on the cursor and clear the virtual slot.
+        -- Swapping is handled in ButtonOnReceiveDrag.
+        local actionID = self:GetActionID(button)
+        local data = self:GetVirtualData(actionID)
+        if data then
+            -- Remember source slot so ReceiveDrag can swap back if needed
+            self.draggingFromSlot = actionID
+            -- Place the item on the WoW cursor for the drag animation
+            if data.type == "spell" and data.id then
+                PickupSpell(data.id, BOOKTYPE_SPELL)
+            elseif data.type == "macro" and data.id then
+                PickupMacro(data.id)
+            end
+            -- Clear the virtual slot immediately
+            self.virtualBars[actionID] = nil
+        end
+    else
+        local actionID = self:GetActionID(button)
+        PickupAction(actionID)
+    end
     self:UpdateButton(button)
 end
 
 function ActionBars:ButtonOnReceiveDrag(button)
-    local actionID = self:GetActionID(button)
-    PlaceAction(actionID)
-    button:SetChecked(0)
-    self:UpdateButton(button)
+    if self:IsUsingAddonActionBars() then
+        local targetSlot = self:GetActionID(button)
+        local cursorType, cursorID, cursorDetail = GetCursorInfo()
+
+        if cursorType == "spell" then
+            local bookType = cursorDetail or BOOKTYPE_SPELL
+            local name    = GetSpellName(cursorID, bookType)
+            local texture = GetSpellTexture(cursorID, bookType)
+
+            -- Swap: if target slot had data, move it back to the source slot
+            local existingData = self:GetVirtualData(targetSlot)
+            if existingData and self.draggingFromSlot then
+                self.virtualBars[self.draggingFromSlot] = existingData
+            end
+
+            self.virtualBars[targetSlot] = {
+                type    = "spell",
+                id      = cursorID,
+                name    = name,
+                texture = texture,
+            }
+            ClearCursor()
+
+        elseif cursorType == "macro" then
+            local name, texture = GetMacroInfo(cursorID)
+
+            local existingData = self:GetVirtualData(targetSlot)
+            if existingData and self.draggingFromSlot then
+                self.virtualBars[self.draggingFromSlot] = existingData
+            end
+
+            self.virtualBars[targetSlot] = {
+                type    = "macro",
+                id      = cursorID,
+                name    = name,
+                texture = texture,
+            }
+            ClearCursor()
+        end
+
+        self.draggingFromSlot = nil
+        -- Persist assignment to the current profile immediately
+        self:SaveVirtualBars()
+        button:SetChecked(0)
+        self:UpdateButton(button)
+
+        -- Also update source button if it was a different button
+        self:UpdateAllButtons()
+    else
+        local actionID = self:GetActionID(button)
+        PlaceAction(actionID)
+        button:SetChecked(0)
+        self:UpdateButton(button)
+    end
 end
 
 -- ============================================================================
@@ -1739,7 +1942,7 @@ function ActionBars:SetButtonTooltip(button)
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
     end
     
-    -- Check for proxied action
+    -- Proxied actions (JUMP, etc.)
     if button.isProxiedAction then
         GameTooltip:SetText(button.isProxiedAction.name, 1, 1, 1)
         if button.isProxiedAction.desc then
@@ -1748,6 +1951,22 @@ function ActionBars:SetButtonTooltip(button)
         GameTooltip:AddLine("Bound to: " .. button.isProxiedAction.id, 0.5, 0.5, 0.5)
         GameTooltip:Show()
         button.updateTooltip = nil
+    elseif self:IsUsingAddonActionBars() then
+        -- Virtual mode: use the spellbook tooltip when possible
+        local data = self:GetVirtualData(actionID)
+        if data then
+            if data.type == "spell" and data.id then
+                local idx = self:FindCurrentSpellIndex(data.name) or data.id
+                GameTooltip:SetSpell(idx, BOOKTYPE_SPELL)
+                button.updateTooltip = self.TOOLTIP_UPDATE_TIME
+            else
+                GameTooltip:SetText(data.name or "", 1, 1, 1)
+                GameTooltip:Show()
+                button.updateTooltip = nil
+            end
+        else
+            button.updateTooltip = nil
+        end
     elseif GameTooltip:SetAction(actionID) then
         button.updateTooltip = self.TOOLTIP_UPDATE_TIME
     else

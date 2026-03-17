@@ -36,6 +36,7 @@ Config.DEFAULTS = {
     barAppearance = "classic",  -- "classic" or "modern"
     autoRankEnabled = true,  -- Automatically update spells to highest rank
     druidStealth = false,  -- Use travel form bar when prowl/stealth is active in cat form
+    useAddonActionBars = true,  -- Store spells in addon DB only; never write to native (server-side) action bars
     -- Side Action Bars (touch screen)
     sideBarLeftEnabled = false,  -- Left side bar disabled by default
     sideBarRightEnabled = false,  -- Right side bar disabled by default

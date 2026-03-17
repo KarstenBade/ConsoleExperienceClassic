@@ -29,6 +29,36 @@ local function GetStanceOffset(bonusBar)
 end
 
 
+-- Helper: true when addon action bars mode is active
+local function IsUsingAddonActionBars()
+    if ConsoleExperience.config and ConsoleExperience.config.Get then
+        return ConsoleExperience.config:Get("useAddonActionBars") ~= false
+    end
+    return true
+end
+
+-- Helper: read virtual data for a slot
+local function GetVirtualData(slot)
+    if ConsoleExperience.actionbars and ConsoleExperience.actionbars.virtualBars then
+        return ConsoleExperience.actionbars.virtualBars[slot]
+    end
+    return nil
+end
+
+-- Helper: store data in a virtual slot and persist it
+local function SetVirtualData(slot, data)
+    if ConsoleExperience.actionbars then
+        if not ConsoleExperience.actionbars.virtualBars then
+            ConsoleExperience.actionbars.virtualBars = {}
+        end
+        ConsoleExperience.actionbars.virtualBars[slot] = data
+        -- Persist immediately
+        if ConsoleExperience.actionbars.SaveVirtualBars then
+            ConsoleExperience.actionbars:SaveVirtualBars()
+        end
+    end
+end
+
 -- Modifier page offsets (always the same)
 local MODIFIER_OFFSETS = {
     [1] = 10,   -- LT (Shift) - slots 11-20
@@ -561,53 +591,89 @@ function Placement:CreateActionButton(parent, actionSlot, buttonIndex, pageIndex
     highlight:SetBlendMode("ADD")
     highlight:SetAllPoints(button)
     
-    -- Click handler - place cursor item
+    -- Click handler - place cursor item on slot (or pick up from slot)
     button:SetScript("OnClick", function()
-        -- Use the stored action slot (fixed per stance row)
         local slot = this.actionSlot
-        
-        -- Check for cursor item OR fake cursor item (for macros)
         local hasCursorItem = CursorHasItem() or CursorHasSpell()
         local hasFakeCursorItem = ConsoleExperience.cursor and ConsoleExperience.cursor.heldItemTexturePath
+
         if hasCursorItem or hasFakeCursorItem then
-            PlaceAction(slot)
+            if IsUsingAddonActionBars() then
+                -- Virtual mode: capture what is on the cursor and store it
+                local cursorType, cursorID, cursorDetail = GetCursorInfo()
+                if cursorType == "spell" then
+                    local bookType = cursorDetail or BOOKTYPE_SPELL
+                    SetVirtualData(slot, {
+                        type    = "spell",
+                        id      = cursorID,
+                        name    = GetSpellName(cursorID, bookType),
+                        texture = GetSpellTexture(cursorID, bookType),
+                    })
+                    ClearCursor()
+                elseif cursorType == "macro" then
+                    local name, texture = GetMacroInfo(cursorID)
+                    SetVirtualData(slot, {
+                        type    = "macro",
+                        id      = cursorID,
+                        name    = name,
+                        texture = texture,
+                    })
+                    ClearCursor()
+                end
+            else
+                PlaceAction(slot)
+            end
             CE_Debug("Placed item in action slot " .. slot)
-            
-            -- Update the button display
             Placement:UpdateButton(this)
-            
-            -- Update main action bar if on current page
             if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
                 ConsoleExperience.actionbars:UpdateAllButtons()
             end
-            
-            -- Clear fake cursor held item
             if ConsoleExperience.cursor then
                 ConsoleExperience.cursor:ClearHeldItemTexture()
             end
-            
-            -- Don't auto-hide - allow user to continue placing items
         else
-            -- No cursor item, maybe pick up from this slot
-            PickupAction(slot)
+            -- Pick up from slot
+            if IsUsingAddonActionBars() then
+                local data = GetVirtualData(slot)
+                if data then
+                    if data.type == "spell" and data.id then
+                        PickupSpell(data.id, BOOKTYPE_SPELL)
+                    elseif data.type == "macro" and data.id then
+                        PickupMacro(data.id)
+                    end
+                    SetVirtualData(slot, nil)
+                end
+            else
+                PickupAction(slot)
+            end
             Placement:UpdateButton(this)
-            
-            -- Show held item on fake cursor
-            local texture = GetActionTexture(slot)
+            -- Show texture on fake cursor
+            local texture = IsUsingAddonActionBars() and nil or GetActionTexture(slot)
             if texture and ConsoleExperience.cursor and ConsoleExperience.cursor.SetHeldItemTexture then
                 ConsoleExperience.cursor:SetHeldItemTexture(texture)
             end
         end
     end)
     
-    -- Right-click to pick up
+    -- Right-click to pick up from slot
     button:SetScript("OnMouseDown", function()
         if arg1 == "RightButton" then
             local slot = this.actionSlot
-            PickupAction(slot)
+            if IsUsingAddonActionBars() then
+                local data = GetVirtualData(slot)
+                if data then
+                    if data.type == "spell" and data.id then
+                        PickupSpell(data.id, BOOKTYPE_SPELL)
+                    elseif data.type == "macro" and data.id then
+                        PickupMacro(data.id)
+                    end
+                    SetVirtualData(slot, nil)
+                end
+            else
+                PickupAction(slot)
+            end
             Placement:UpdateButton(this)
-            
-            local texture = GetActionTexture(slot)
+            local texture = IsUsingAddonActionBars() and nil or GetActionTexture(slot)
             if texture and ConsoleExperience.cursor and ConsoleExperience.cursor.SetHeldItemTexture then
                 ConsoleExperience.cursor:SetHeldItemTexture(texture)
             end
@@ -618,19 +684,39 @@ function Placement:CreateActionButton(parent, actionSlot, buttonIndex, pageIndex
     button:SetScript("OnEnter", function()
         local slot = this.actionSlot
         GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-        if HasAction(slot) then
-            GameTooltip:SetAction(slot)
-            -- Prompts will be added automatically by tooltip system: A = Pickup/Place, B = Clear
-        else
-            local btnInfo = Placement.BUTTON_INFO[this.buttonIndex]
-            local pageInfo = Placement.PAGE_INFO and Placement.PAGE_INFO[this.pageIndex]
-            local slotName = btnInfo and btnInfo.name or ("Slot " .. this.buttonIndex)
-            if pageInfo and pageInfo.text and pageInfo.text ~= "" then
-                slotName = pageInfo.text .. " + " .. slotName
+        if IsUsingAddonActionBars() then
+            local data = GetVirtualData(slot)
+            if data then
+                if data.type == "spell" and data.id then
+                    local AB = ConsoleExperience.actionbars
+                    local idx = (AB and AB.FindCurrentSpellIndex) and AB:FindCurrentSpellIndex(data.name) or data.id
+                    GameTooltip:SetSpell(idx, BOOKTYPE_SPELL)
+                else
+                    GameTooltip:SetText(data.name or "", 1, 1, 1)
+                end
+            else
+                local btnInfo = Placement.BUTTON_INFO[this.buttonIndex]
+                local pageInfo = Placement.PAGE_INFO and Placement.PAGE_INFO[this.pageIndex]
+                local slotName = btnInfo and btnInfo.name or ("Slot " .. this.buttonIndex)
+                if pageInfo and pageInfo.text and pageInfo.text ~= "" then
+                    slotName = pageInfo.text .. " + " .. slotName
+                end
+                GameTooltip:SetText(slotName)
+                GameTooltip:AddLine("Empty slot", 0.7, 0.7, 0.7)
             end
-            GameTooltip:SetText(slotName)
-            GameTooltip:AddLine("Empty slot", 0.7, 0.7, 0.7)
-            -- Prompts will be added automatically by tooltip system: A = Pickup/Place, B = Clear
+        else
+            if HasAction(slot) then
+                GameTooltip:SetAction(slot)
+            else
+                local btnInfo = Placement.BUTTON_INFO[this.buttonIndex]
+                local pageInfo = Placement.PAGE_INFO and Placement.PAGE_INFO[this.pageIndex]
+                local slotName = btnInfo and btnInfo.name or ("Slot " .. this.buttonIndex)
+                if pageInfo and pageInfo.text and pageInfo.text ~= "" then
+                    slotName = pageInfo.text .. " + " .. slotName
+                end
+                GameTooltip:SetText(slotName)
+                GameTooltip:AddLine("Empty slot", 0.7, 0.7, 0.7)
+            end
         end
         GameTooltip:Show()
     end)
@@ -642,20 +728,38 @@ function Placement:CreateActionButton(parent, actionSlot, buttonIndex, pageIndex
     -- Receive drag
     button:RegisterForDrag("LeftButton")
     button:SetScript("OnReceiveDrag", function()
-        -- Use the stored action slot (fixed per stance row)
         local slot = this.actionSlot
-        
-        -- Check for cursor item OR fake cursor item (for macros)
         local hasCursorItem = CursorHasItem() or CursorHasSpell()
         local hasFakeCursorItem = ConsoleExperience.cursor and ConsoleExperience.cursor.heldItemTexturePath
         if hasCursorItem or hasFakeCursorItem then
-            PlaceAction(slot)
+            if IsUsingAddonActionBars() then
+                local cursorType, cursorID, cursorDetail = GetCursorInfo()
+                if cursorType == "spell" then
+                    local bookType = cursorDetail or BOOKTYPE_SPELL
+                    SetVirtualData(slot, {
+                        type    = "spell",
+                        id      = cursorID,
+                        name    = GetSpellName(cursorID, bookType),
+                        texture = GetSpellTexture(cursorID, bookType),
+                    })
+                    ClearCursor()
+                elseif cursorType == "macro" then
+                    local name, texture = GetMacroInfo(cursorID)
+                    SetVirtualData(slot, {
+                        type    = "macro",
+                        id      = cursorID,
+                        name    = name,
+                        texture = texture,
+                    })
+                    ClearCursor()
+                end
+            else
+                PlaceAction(slot)
+            end
             Placement:UpdateButton(this)
-
             if ConsoleExperience.actionbars and ConsoleExperience.actionbars.UpdateAllButtons then
                 ConsoleExperience.actionbars:UpdateAllButtons()
             end
-
             if ConsoleExperience.cursor and ConsoleExperience.cursor.ClearHeldItemTexture then
                 ConsoleExperience.cursor:ClearHeldItemTexture()
             end
@@ -672,17 +776,23 @@ end
 function Placement:UpdateButton(button)
     if not button then return end
 
-    -- Use the stored action slot (fixed per stance row)
     local actionSlot = button.actionSlot
-    local texture = GetActionTexture(actionSlot)
+    local texture
+
+    if IsUsingAddonActionBars() then
+        local data = GetVirtualData(actionSlot)
+        texture = data and data.texture or nil
+    else
+        texture = GetActionTexture(actionSlot)
+    end
 
     if texture then
         button.icon:SetTexture(texture)
         button.icon:Show()
-        button:SetBackdropColor(0.2, 0.2, 0.2, 1.0)  -- Fully opaque
+        button:SetBackdropColor(0.2, 0.2, 0.2, 1.0)
     else
         button.icon:Hide()
-        button:SetBackdropColor(0.15, 0.15, 0.15, 1.0)  -- Fully opaque
+        button:SetBackdropColor(0.15, 0.15, 0.15, 1.0)
     end
 end
 
