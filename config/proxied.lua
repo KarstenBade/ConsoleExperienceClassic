@@ -140,6 +140,12 @@ Proxied.ACTIONS = {
         icon = "Interface\\Icons\\INV_Letter_02",
         descKey = "Toggle friends list"
     },
+    { 
+        id = "CE_TOGGLE_RADIAL", 
+        nameKey = "Radial Menu", 
+        icon = "Interface\\Icons\\Trade_Engineering",
+        descKey = "Toggle the radial menu"
+    },
     
     -- Camera
     { headerKey = "Camera" },
