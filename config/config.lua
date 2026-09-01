@@ -3179,8 +3179,20 @@ function Config:CreateGameMenuButton()
     local T = Locale and Locale.T or function(key) return key end
     button:SetText(T("Console Experience"))
     
-    -- Position after UIOptions (Interface Options) button
-    if GameMenuButtonUIOptions then
+    -- Sit below whatever is already above Keybindings, rather than always
+    -- claiming the slot directly under Interface Options. Other addons add
+    -- game menu entries the same way (ShaguTweaks does), and each one that
+    -- assumes the slot is free lands on top of the last.
+    local anchor = nil
+    if GameMenuButtonKeybindings then
+        local _, relative = GameMenuButtonKeybindings:GetPoint()
+        if type(relative) == "string" then relative = getglobal(relative) end
+        anchor = relative
+    end
+
+    if anchor then
+        button:SetPoint("TOP", anchor, "BOTTOM", 0, -1)
+    elseif GameMenuButtonUIOptions then
         button:SetPoint("TOP", GameMenuButtonUIOptions, "BOTTOM", 0, -1)
     elseif GameMenuButtonOptions then
         button:SetPoint("TOP", GameMenuButtonOptions, "BOTTOM", 0, -1)
