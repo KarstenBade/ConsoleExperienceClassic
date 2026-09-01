@@ -34,17 +34,18 @@ They are order-independent by construction (each asks where Keybindings currentl
 neither depends on the other loading first — but if an upstream merge ever conflicts around
 `Config:CreateGameMenuButton`, that patch is the context you need. Offered upstream as a PR.
 
-## Removed: the `actionSlotBase` / `/ceslots` experiment
+## Not here: the `actionSlotBase` / `/ceslots` experiment
 
-A previous release let this addon's four pages and side bars be shifted into a different range
-of action slots, so a Deck and a desktop could use disjoint slots on the same character. It was
-withdrawn: with up to 12 bars of 10 buttons in use on a desktop there is no free range to shift
-into, and the real fix is per-device action bar profiles in SimpleActionSets.
+A World of Fiedel release briefly let this addon's four pages and side bars be
+shifted into a different range of action slots, so a gamepad device and a
+desktop could use disjoint slots on the same character. It was carried as a
+downstream patch, never as a commit here, and it is withdrawn: with up to 12
+bars of 10 buttons in use on a desktop there is no free range to shift into.
+Per-device action bar profiles in SimpleActionSets are the replacement.
 
-The code is gone, but a **one-time migration remains**: a saved non-zero `actionSlotBase` is
-reset to 0 and the player is told once, because both live changelogs had told them to run
-`/ceslots 20` and silently changing the base under them would look exactly like wiped bars.
-Remove the migration once no install can still carry the setting.
+It reached only the realm's own PTR and nobody enabled it, so there is no
+migration and no leftover setting to clean up. Mentioned only so the idea is
+not reinvented.
 
 ## How it ships
 

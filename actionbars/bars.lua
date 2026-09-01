@@ -160,39 +160,7 @@ end
 -- Module Initialization
 -- ============================================================================
 
--- One-time migration off the withdrawn `actionSlotBase` setting.
---
--- A release of the World of Fiedel client let this addon's pages and side bars
--- be shifted into a different range of action slots, so a gamepad device and a
--- desktop could use disjoint slots on the same character. It was withdrawn --
--- with 12 bars of 10 buttons in use there is no free range to shift into --
--- and per-device action bar profiles in SimpleActionSets replace it.
---
--- Anyone who followed that changelog still has the setting saved. Their
--- buttons' contents sit in the shifted slots and this addon now reads the
--- normal ones, so say what happened rather than leaving them staring at bars
--- that look wiped. Their content is not lost; it is in the slots the old
--- setting pointed at, and it can be dragged back.
---
--- Remove this once no install can still carry the setting.
-function ActionBars:MigrateSlotBase()
-    if not ConsoleExperienceDB or not ConsoleExperienceDB.config then return end
-    local base = ConsoleExperienceDB.config.actionSlotBase
-    if not base or base == 0 then return end
-
-    ConsoleExperienceDB.config.actionSlotBase = nil
-    if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99Console Experience|r: the action slot offset "
-            .. "(/ceslots " .. base .. ") has been removed. Your buttons are back on the normal "
-            .. "slots; anything you placed while it was on is still in slots "
-            .. (base + 1) .. "-" .. (base + 50) .. " and can be dragged back.")
-        DEFAULT_CHAT_FRAME:AddMessage("Keeping a separate layout per device is now "
-            .. "SimpleActionSets' job, and it happens automatically.")
-    end
-end
-
 function ActionBars:Initialize()
-    self:MigrateSlotBase()
     self:HideDefaultBars()
     self:CreateModifierFrame()
     self:UpdateAllButtons()
